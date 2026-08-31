@@ -1,0 +1,138 @@
+{
+  "entities": {
+    "provider": {
+      "title": "Provider",
+      "description": "Textile provider details",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "hasLot": { "type": "boolean" },
+        "hasPartida": { "type": "boolean" },
+        "hasTono": { "type": "boolean" },
+        "hasRollNo": { "type": "boolean" },
+        "hasWidth": { "type": "boolean" },
+        "hasWeight": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "hasLot", "hasPartida", "hasTono", "hasRollNo"]
+    },
+    "article": {
+      "title": "Article",
+      "description": "Fabric article or textile type",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string", "maxLength": 500 },
+        "unit": { "type": "string" },
+        "providerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "providerId"]
+    },
+    "client": {
+      "title": "Client",
+      "description": "Fabric buyer or custom apparel client",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "dni": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "phone": { "type": "string" },
+        "address": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "dni"]
+    },
+    "seller": {
+      "title": "Seller",
+      "description": "Sales agent",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "inventory": {
+      "title": "Inventory Item",
+      "description": "A specific roll of fabric in inventory",
+      "type": "object",
+      "properties": {
+        "rollNumber": { "type": "string" },
+        "articleId": { "type": "string" },
+        "providerId": { "type": "string" },
+        "initialMeters": { "type": "number" },
+        "currentMeters": { "type": "number" },
+        "lot": { "type": "string" },
+        "partida": { "type": "string" },
+        "tono": { "type": "string" },
+        "status": { "type": "string" },
+        "appVersion": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["rollNumber", "articleId", "providerId", "initialMeters", "currentMeters", "status", "appVersion"]
+    },
+    "packinglist": {
+      "title": "Packing List",
+      "description": "Packing and dispatch registry details",
+      "type": "object",
+      "properties": {
+        "packingListNo": { "type": "string" },
+        "type": { "type": "string" },
+        "clientId": { "type": "string" },
+        "sellerId": { "type": "string" },
+        "date": { "type": "string" },
+        "items": { "type": "array", "maxItems": 100 },
+        "totalMeters": { "type": "number" },
+        "totalRollsOrCuts": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 500 },
+        "appVersion": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["packingListNo", "type", "clientId", "sellerId", "date", "items", "totalMeters", "totalRollsOrCuts", "appVersion"]
+    },
+    "counter": {
+      "title": "Counter",
+      "description": "Atomic sequence numbering counter",
+      "type": "object",
+      "properties": {
+        "currentValue": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["currentValue"]
+    }
+  },
+  "firestore": {
+    "providers": {
+      "schema": { "$ref": "provider" },
+      "description": "Providers collection"
+    },
+    "articles": {
+      "schema": { "$ref": "article" },
+      "description": "Articles collection"
+    },
+    "clients": {
+      "schema": { "$ref": "client" },
+      "description": "Clients collection"
+    },
+    "sellers": {
+      "schema": { "$ref": "seller" },
+      "description": "Sellers collection"
+    },
+    "inventory": {
+      "schema": { "$ref": "inventory" },
+      "description": "Roll inventory collection"
+    },
+    "packinglists": {
+      "schema": { "$ref": "packinglist" },
+      "description": "Packing lists history collection"
+    },
+    "counters": {
+      "schema": { "$ref": "counter" },
+      "description": "Atomic counters collection for correlative numbers"
+    }
+  }
+}

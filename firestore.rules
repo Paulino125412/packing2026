@@ -1,0 +1,192 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common Helpers
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    
+    function incoming(req) {
+      return req.resource.data;
+    }
+
+    // 1. Providers
+    match /providers/{providerId} {
+      allow read: if true;
+      allow create, update: if isValidId(providerId) 
+        && incoming(request).name is string 
+        && incoming(request).name.size() > 0 
+        && incoming(request).name.size() <= 128
+        && incoming(request).hasLot is bool
+        && incoming(request).hasPartida is bool
+        && incoming(request).hasTono is bool
+        && incoming(request).hasRollNo is bool
+        && (!('hasWidth' in incoming(request)) || incoming(request).hasWidth is bool)
+        && (!('hasWeight' in incoming(request)) || incoming(request).hasWeight is bool)
+        && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
+      allow delete: if isValidId(providerId);
+    }
+
+    // 2. Articles
+    match /articles/{articleId} {
+      allow read: if true;
+      allow create, update: if isValidId(articleId)
+        && incoming(request).name is string 
+        && incoming(request).name.size() > 0 
+        && incoming(request).name.size() <= 128
+        && incoming(request).providerId is string
+        && incoming(request).providerId.size() <= 128
+        && (!('code' in incoming(request)) || (incoming(request).code is string && incoming(request).code.size() <= 100))
+        && (!('description' in incoming(request)) || (incoming(request).description is string && incoming(request).description.size() <= 500))
+        && (!('unit' in incoming(request)) || (incoming(request).unit is string && incoming(request).unit.size() <= 50))
+        && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
+      allow delete: if isValidId(articleId);
+    }
+
+    // 3. Clients
+    match /clients/{clientId} {
+      allow read: if true;
+      allow create, update: if isValidId(clientId)
+        && incoming(request).name is string 
+        && incoming(request).name.size() > 0 
+        && incoming(request).name.size() <= 128
+        && incoming(request).dni is string 
+        && incoming(request).dni.size() <= 30
+        && (!('address' in incoming(request)) || (incoming(request).address is string && incoming(request).address.size() <= 500))
+        && (!('fiscalAddress' in incoming(request)) || (incoming(request).fiscalAddress is string && incoming(request).fiscalAddress.size() <= 500))
+        && (!('contactPerson' in incoming(request)) || (incoming(request).contactPerson is string && incoming(request).contactPerson.size() <= 128))
+        && (!('email' in incoming(request)) || (incoming(request).email is string && incoming(request).email.size() <= 128))
+        && (!('phone' in incoming(request)) || (incoming(request).phone is string && incoming(request).phone.size() <= 50))
+        && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
+      allow delete: if isValidId(clientId);
+    }
+
+    // 4. Sellers
+    match /sellers/{sellerId} {
+      allow read: if true;
+      allow create, update: if isValidId(sellerId)
+        && incoming(request).name is string 
+        && incoming(request).name.size() > 0 
+        && incoming(request).name.size() <= 128
+        && (!('email' in incoming(request)) || (incoming(request).email is string && incoming(request).email.size() <= 128))
+        && (!('phone' in incoming(request)) || (incoming(request).phone is string && incoming(request).phone.size() <= 50))
+        && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
+      allow delete: if isValidId(sellerId);
+    }
+
+    // 5. Inventory
+    match /inventory/{rollId} {
+      allow read: if true;
+      allow create, update: if isValidId(rollId)
+        && incoming(request).rollNumber is string 
+        && incoming(request).rollNumber.size() > 0 
+        && incoming(request).rollNumber.size() <= 100
+        && incoming(request).articleId is string 
+        && incoming(request).articleId.size() <= 128
+        && incoming(request).providerId is string 
+        && incoming(request).providerId.size() <= 128
+        && (incoming(request).initialMeters is int || incoming(request).initialMeters is float || incoming(request).initialMeters is number)
+        && incoming(request).initialMeters >= 0
+        && (incoming(request).currentMeters is int || incoming(request).currentMeters is float || incoming(request).currentMeters is number)
+        && incoming(request).currentMeters >= 0
+        && incoming(request).status is string 
+        && incoming(request).status.size() <= 50
+        && (!('lot' in incoming(request)) || (incoming(request).lot is string && incoming(request).lot.size() <= 100))
+        && (!('partida' in incoming(request)) || (incoming(request).partida is string && incoming(request).partida.size() <= 100))
+        && (!('tono' in incoming(request)) || (incoming(request).tono is string && incoming(request).tono.size() <= 100))
+        && (!('width' in incoming(request)) || (incoming(request).width is string && incoming(request).width.size() <= 50))
+        && (!('weight' in incoming(request)) || (incoming(request).weight is string && incoming(request).weight.size() <= 50))
+        && (!('appVersion' in incoming(request)) || (incoming(request).appVersion is string && incoming(request).appVersion.size() <= 50))
+        && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
+      allow delete: if isValidId(rollId);
+    }
+
+    // 6. Packing Lists
+    match /packinglists/{packingListId} {
+      allow read: if true;
+      allow create, update: if isValidId(packingListId)
+        && incoming(request).packingListNo is string 
+        && incoming(request).packingListNo.size() > 0 
+        && incoming(request).packingListNo.size() <= 50
+        && incoming(request).type is string 
+        && incoming(request).type.size() <= 50
+        && incoming(request).clientId is string 
+        && incoming(request).clientId.size() <= 128
+        && incoming(request).sellerId is string 
+        && incoming(request).sellerId.size() <= 128
+        && incoming(request).date is string 
+        && incoming(request).date.size() <= 50
+        && incoming(request).items is list 
+        && incoming(request).items.size() <= 500
+        && (incoming(request).totalMeters is int || incoming(request).totalMeters is float || incoming(request).totalMeters is number)
+        && incoming(request).totalMeters >= 0
+        && (incoming(request).totalRollsOrCuts is int || incoming(request).totalRollsOrCuts is float || incoming(request).totalRollsOrCuts is number)
+        && incoming(request).totalRollsOrCuts >= 0
+        && (!('notes' in incoming(request)) || (incoming(request).notes is string && incoming(request).notes.size() <= 1000))
+        && (!('guideNumber' in incoming(request)) || (incoming(request).guideNumber is string && incoming(request).guideNumber.size() <= 100))
+        && (!('dispatchAddress' in incoming(request)) || (incoming(request).dispatchAddress is string && incoming(request).dispatchAddress.size() <= 500))
+        && (!('importantNotice' in incoming(request)) || (incoming(request).importantNotice is string && incoming(request).importantNotice.size() <= 500))
+        && (!('signedBy' in incoming(request)) || incoming(request).signedBy is map)
+        && (!('appVersion' in incoming(request)) || (incoming(request).appVersion is string && incoming(request).appVersion.size() <= 50))
+        && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
+      allow delete: if isValidId(packingListId);
+    }
+
+    // 7. Sales Orders (Ficha de Venta / Orden de Venta)
+    match /sales_orders/{orderId} {
+      allow read: if true;
+      allow create, update: if isValidId(orderId)
+        && incoming(request).orderNo is string
+        && incoming(request).orderNo.size() <= 50
+        && incoming(request).clientName is string
+        && incoming(request).clientName.size() <= 200
+        && incoming(request).clientRucDni is string
+        && incoming(request).clientRucDni.size() <= 30
+        && incoming(request).date is string
+        && incoming(request).date.size() <= 50
+        && incoming(request).items is list
+        && incoming(request).items.size() <= 500
+        && (incoming(request).totalAmount is int || incoming(request).totalAmount is float || incoming(request).totalAmount is number)
+        && incoming(request).totalAmount >= 0
+        && (!('sellerName' in incoming(request)) || (incoming(request).sellerName is string && incoming(request).sellerName.size() <= 200))
+        && (!('sellerId' in incoming(request)) || (incoming(request).sellerId is string && incoming(request).sellerId.size() <= 128))
+        && (!('clientId' in incoming(request)) || (incoming(request).clientId is string && incoming(request).clientId.size() <= 128))
+        && (!('fiscalAddress' in incoming(request)) || (incoming(request).fiscalAddress is string && incoming(request).fiscalAddress.size() <= 500))
+        && (!('dispatchContactName' in incoming(request)) || (incoming(request).dispatchContactName is string && incoming(request).dispatchContactName.size() <= 200))
+        && (!('dispatchContactPhone' in incoming(request)) || (incoming(request).dispatchContactPhone is string && incoming(request).dispatchContactPhone.size() <= 50))
+        && (!('dispatchAddress' in incoming(request)) || (incoming(request).dispatchAddress is string && incoming(request).dispatchAddress.size() <= 500))
+        && (!('floorNumber' in incoming(request)) || (incoming(request).floorNumber is string && incoming(request).floorNumber.size() <= 50))
+        && (!('dispatchDate' in incoming(request)) || (incoming(request).dispatchDate is string && incoming(request).dispatchDate.size() <= 50))
+        && (!('dispatchTime' in incoming(request)) || (incoming(request).dispatchTime is string && incoming(request).dispatchTime.size() <= 50))
+        && (!('paymentMethod' in incoming(request)) || (incoming(request).paymentMethod is string && incoming(request).paymentMethod.size() <= 200))
+        && (!('billingName' in incoming(request)) || (incoming(request).billingName is string && incoming(request).billingName.size() <= 200))
+        && (!('billingRucDni' in incoming(request)) || (incoming(request).billingRucDni is string && incoming(request).billingRucDni.size() <= 30))
+        && (!('observations' in incoming(request)) || (incoming(request).observations is string && incoming(request).observations.size() <= 1000))
+        && (!('appVersion' in incoming(request)) || (incoming(request).appVersion is string && incoming(request).appVersion.size() <= 50))
+        && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
+      allow delete: if isValidId(orderId);
+    }
+
+    // 8. Counters (Atomic sequence numbering)
+    match /counters/{counterId} {
+      allow read: if true;
+      allow create, update: if isValidId(counterId)
+        && (incoming(request).currentValue is int || incoming(request).currentValue is float || incoming(request).currentValue is number)
+        && incoming(request).currentValue >= 0
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
+      allow delete: if isValidId(counterId);
+    }
+  }
+}
