@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Client, Seller, Provider, Article, PackingList, RollItem } from '../types';
-import { db, addDoc, updateDoc, deleteDoc } from '../firebase';
+import { db, addDoc, updateDoc, deleteDoc, fetchAllInventoryDocs } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
 import { Plus, Edit2, Trash2, Users, Briefcase, Truck, Layers, Check, X, Search, FileSpreadsheet, Building, Loader2 } from 'lucide-react';
 import { exportCatalogToExcel } from '../utils/excelExport';
@@ -46,6 +46,7 @@ export default function CatalogManager({
     technicalDetails?: string;
   } | string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [similarityWarning, setSimilarityWarning] = useState<{
     isOpen: boolean;
     existingName: string;
@@ -493,55 +494,74 @@ export default function CatalogManager({
     let count = 0;
     const dependencyDetails: string[] = [];
 
-    if (tab === 'clients') {
-      const plCount = packingLists.filter(pl => pl.clientId === id).length;
-      count = plCount;
-      if (plCount > 0) dependencyDetails.push(`${plCount} Packing List(s)`);
-    } else if (tab === 'sellers') {
-      const plCount = packingLists.filter(pl => pl.sellerId === id).length;
-      count = plCount;
-      if (plCount > 0) dependencyDetails.push(`${plCount} Packing List(s)`);
-    } else if (tab === 'providers') {
-      const plCount = packingLists.filter(pl => pl.items?.some(item => item.providerId === id)).length;
-      const artCount = articles.filter(art => art.providerId === id).length;
-      const invCount = inventory.filter(r => r.providerId === id).length;
-      count = plCount + artCount + invCount;
-      if (plCount > 0) dependencyDetails.push(`${plCount} Packing List(s)`);
-      if (artCount > 0) dependencyDetails.push(`${artCount} Artículo(s) en catálogo`);
-      if (invCount > 0) dependencyDetails.push(`${invCount} Rollo(s) en inventario`);
-    } else if (tab === 'articles') {
-      const plCount = packingLists.filter(pl => pl.items?.some(item => item.articleId === id)).length;
-      const invCount = inventory.filter(r => r.articleId === id).length;
-      count = plCount + invCount;
-      if (plCount > 0) dependencyDetails.push(`${plCount} Packing List(s)`);
-      if (invCount > 0) dependencyDetails.push(`${invCount} Rollo(s) en inventario`);
-    }
-
-    if (count > 0) {
-      const entityLabel = tab === 'clients' ? 'cliente' : tab === 'sellers' ? 'vendedor' : tab === 'providers' ? 'proveedor' : 'artículo';
-      const depsText = dependencyDetails.join(', ');
-      const diag = {
-        title: 'Integridad Referencial Protegida',
-        message: `No se puede eliminar este ${entityLabel} porque tiene registros activos asociados: ${depsText}.`,
-        rootCause: `Existen dependencias activas (${depsText}) que requieren la existencia de este ${entityLabel}.`,
-        solution: `Para eliminarlo, primero reasigne o elimine los ${depsText} asociados a este registro.`
-      };
-      setError(diag);
-      toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
-      return;
-    }
-
-    if (!window.confirm('¿Está seguro de eliminar este registro del catálogo?')) return;
-    setLoading(true);
+    setDeletingId(id);
     setError(null);
+
     try {
-      await deleteDoc(doc(db, tab, id));
-      await onRefresh();
-      toast.success('Registro eliminado del catálogo correctamente.');
-      resetForms();
+      if (tab === 'clients') {
+        const plCount = packingLists.filter(pl => pl.clientId === id).length;
+        count = plCount;
+        if (plCount > 0) dependencyDetails.push(`${plCount} Packing List(s)`);
+      } else if (tab === 'sellers') {
+        const plCount = packingLists.filter(pl => pl.sellerId === id).length;
+        count = plCount;
+        if (plCount > 0) dependencyDetails.push(`${plCount} Packing List(s)`);
+      } else if (tab === 'providers') {
+        const plCount = packingLists.filter(pl => pl.items?.some(item => item.providerId === id)).length;
+        const artCount = articles.filter(art => art.providerId === id).length;
+        const fullInventory = await fetchAllInventoryDocs();
+        const invCount = fullInventory.filter(r => r.providerId === id).length;
+        count = plCount + artCount + invCount;
+        if (plCount > 0) dependencyDetails.push(`${plCount} Packing List(s)`);
+        if (artCount > 0) dependencyDetails.push(`${artCount} Artículo(s) en catálogo`);
+        if (invCount > 0) dependencyDetails.push(`${invCount} Rollo(s) en inventario`);
+      } else if (tab === 'articles') {
+        const plCount = packingLists.filter(pl => pl.items?.some(item => item.articleId === id)).length;
+        const fullInventory = await fetchAllInventoryDocs();
+        const invCount = fullInventory.filter(r => r.articleId === id).length;
+        count = plCount + invCount;
+        if (plCount > 0) dependencyDetails.push(`${plCount} Packing List(s)`);
+        if (invCount > 0) dependencyDetails.push(`${invCount} Rollo(s) en inventario`);
+      }
+
+      if (count > 0) {
+        const entityLabel = tab === 'clients' ? 'cliente' : tab === 'sellers' ? 'vendedor' : tab === 'providers' ? 'proveedor' : 'artículo';
+        const depsText = dependencyDetails.join(', ');
+        const diag = {
+          title: 'Integridad Referencial Protegida',
+          message: `No se puede eliminar este ${entityLabel} porque tiene registros activos asociados: ${depsText}.`,
+          rootCause: `Existen dependencias activas (${depsText}) que requieren la existencia de este ${entityLabel}.`,
+          solution: `Para eliminarlo, primero reasigne o elimine los ${depsText} asociados a este registro.`
+        };
+        setError(diag);
+        toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
+        return;
+      }
+
+      if (!window.confirm('¿Está seguro de eliminar este registro del catálogo?')) return;
+      setLoading(true);
+      try {
+        await deleteDoc(doc(db, tab, id));
+        await onRefresh();
+        toast.success('Registro eliminado del catálogo correctamente.');
+        resetForms();
+      } catch (err: any) {
+        console.error(err);
+        const diag = analyzeSystemError(err, { action: 'eliminar registro del catálogo', entity: tab });
+        setError({
+          title: diag.title,
+          message: diag.message,
+          rootCause: diag.rootCause,
+          solution: diag.solution,
+          technicalDetails: diag.technicalDetails
+        });
+        toast.diagnose(err, { action: 'eliminar del catálogo', entity: tab });
+      } finally {
+        setLoading(false);
+      }
     } catch (err: any) {
       console.error(err);
-      const diag = analyzeSystemError(err, { action: 'eliminar registro del catálogo', entity: tab });
+      const diag = analyzeSystemError(err, { action: 'verificar dependencias de inventario', entity: tab });
       setError({
         title: diag.title,
         message: diag.message,
@@ -549,9 +569,9 @@ export default function CatalogManager({
         solution: diag.solution,
         technicalDetails: diag.technicalDetails
       });
-      toast.diagnose(err, { action: 'eliminar del catálogo', entity: tab });
+      toast.diagnose(err, { action: 'verificar dependencias', entity: tab });
     } finally {
-      setLoading(false);
+      setDeletingId(null);
     }
   };
 
@@ -1167,11 +1187,21 @@ export default function CatalogManager({
                             </button>
                             <button
                               onClick={() => handleDelete('providers', p.id)}
-                              className="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-600 hover:text-white rounded transition cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider shadow-2xs"
+                              disabled={deletingId === p.id || loading}
+                              className="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-600 hover:text-white rounded transition cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                               title="Eliminar Proveedor"
                             >
-                              <Trash2 size={12} />
-                              <span className="hidden md:inline">Eliminar</span>
+                              {deletingId === p.id ? (
+                                <>
+                                  <Loader2 size={12} className="animate-spin" />
+                                  <span>Verificando...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Trash2 size={12} />
+                                  <span className="hidden md:inline">Eliminar</span>
+                                </>
+                              )}
                             </button>
                           </div>
                         </td>
@@ -1274,11 +1304,21 @@ export default function CatalogManager({
                               </button>
                               <button
                                 onClick={() => handleDelete('articles', a.id)}
-                                className="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-600 hover:text-white rounded transition cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider shadow-2xs"
+                                disabled={deletingId === a.id || loading}
+                                className="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-600 hover:text-white rounded transition cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                                 title="Eliminar Artículo"
                               >
-                                <Trash2 size={12} />
-                                <span className="hidden md:inline">Eliminar</span>
+                                {deletingId === a.id ? (
+                                  <>
+                                    <Loader2 size={12} className="animate-spin" />
+                                    <span>Verificando...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Trash2 size={12} />
+                                    <span className="hidden md:inline">Eliminar</span>
+                                  </>
+                                )}
                               </button>
                             </div>
                           </td>
@@ -1387,11 +1427,21 @@ export default function CatalogManager({
                             </button>
                             <button
                               onClick={() => handleDelete('clients', c.id)}
-                              className="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-600 hover:text-white rounded transition cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider shadow-2xs"
+                              disabled={deletingId === c.id || loading}
+                              className="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-600 hover:text-white rounded transition cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                               title="Eliminar Cliente"
                             >
-                              <Trash2 size={12} />
-                              <span className="hidden md:inline">Eliminar</span>
+                              {deletingId === c.id ? (
+                                <>
+                                  <Loader2 size={12} className="animate-spin" />
+                                  <span>Verificando...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Trash2 size={12} />
+                                  <span className="hidden md:inline">Eliminar</span>
+                                </>
+                              )}
                             </button>
                           </div>
                         </td>
@@ -1484,11 +1534,21 @@ export default function CatalogManager({
                             </button>
                             <button
                               onClick={() => handleDelete('sellers', s.id)}
-                              className="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-600 hover:text-white rounded transition cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider shadow-2xs"
+                              disabled={deletingId === s.id || loading}
+                              className="px-2 py-1 bg-red-50 dark:bg-red-950/30 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50 hover:bg-red-600 hover:text-white rounded transition cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
                               title="Eliminar Vendedor"
                             >
-                              <Trash2 size={12} />
-                              <span className="hidden md:inline">Eliminar</span>
+                              {deletingId === s.id ? (
+                                <>
+                                  <Loader2 size={12} className="animate-spin" />
+                                  <span>Verificando...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Trash2 size={12} />
+                                  <span className="hidden md:inline">Eliminar</span>
+                                </>
+                              )}
                             </button>
                           </div>
                         </td>
