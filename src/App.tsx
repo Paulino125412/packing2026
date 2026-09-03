@@ -50,7 +50,7 @@ import PrintPackingList from './components/PrintPackingList';
 import QuickSearchPalette from './components/QuickSearchPalette';
 import DevRulesMonitor from './components/DevRulesMonitor';
 
-type AppTab = 'generate' | 'history' | 'inventory' | 'catalogs' | 'sales_order';
+type AppTab = 'generate' | 'sales_order' | 'catalogs' | 'inventory' | 'history';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<AppTab>('generate');
@@ -615,27 +615,15 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => handleTabChange('history')}
+            onClick={() => handleTabChange('sales_order')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
-              activeTab === 'history'
+              activeTab === 'sales_order'
                 ? 'bg-app-primary text-white shadow-xs'
                 : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
             }`}
           >
-            <History size={18} className={activeTab === 'history' ? 'text-white' : 'text-app-text/60'} />
-            <span className="truncate">HISTORIAL DE DESPACHOS</span>
-          </button>
-
-          <button
-            onClick={() => handleTabChange('inventory')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
-              activeTab === 'inventory'
-                ? 'bg-app-primary text-white shadow-xs'
-                : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-          >
-            <Warehouse size={18} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/60'} />
-            <span className="truncate">INVENTARIO</span>
+            <ClipboardList size={18} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/60'} />
+            <span className="truncate">ÓRDENES DE VENTA</span>
           </button>
 
           <button
@@ -651,15 +639,27 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => handleTabChange('sales_order')}
+            onClick={() => handleTabChange('inventory')}
             className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
-              activeTab === 'sales_order'
+              activeTab === 'inventory'
                 ? 'bg-app-primary text-white shadow-xs'
                 : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
             }`}
           >
-            <ClipboardList size={18} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/60'} />
-            <span className="truncate">ÓRDENES DE VENTA</span>
+            <Warehouse size={18} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/60'} />
+            <span className="truncate">INVENTARIO</span>
+          </button>
+
+          <button
+            onClick={() => handleTabChange('history')}
+            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+              activeTab === 'history'
+                ? 'bg-app-primary text-white shadow-xs'
+                : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+            }`}
+          >
+            <History size={18} className={activeTab === 'history' ? 'text-white' : 'text-app-text/60'} />
+            <span className="truncate">HISTORIAL DE DESPACHOS</span>
           </button>
         </nav>
 
@@ -805,31 +805,17 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => handleTabChange('history')}
+            onClick={() => handleTabChange('sales_order')}
             className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
-              activeTab === 'history'
+              activeTab === 'sales_order'
                 ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
                 : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
             }`}
-            id="tab-history"
-            title="HISTORIAL DE DESPACHOS"
+            id="tab-sales-order"
+            title="ÓRDENES DE VENTA"
           >
-            <History size={16} className={activeTab === 'history' ? 'text-white' : 'text-app-text/50'} />
-            {isSidebarExpanded && <span className="truncate">HISTORIAL DE DESPACHOS</span>}
-          </button>
-
-          <button
-            onClick={() => handleTabChange('inventory')}
-            className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
-              activeTab === 'inventory'
-                ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-            id="tab-inventory"
-            title="INVENTARIO"
-          >
-            <Warehouse size={16} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/50'} />
-            {isSidebarExpanded && <span className="truncate">INVENTARIO</span>}
+            <ClipboardList size={16} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/50'} />
+            {isSidebarExpanded && <span className="truncate">ÓRDENES DE VENTA</span>}
           </button>
 
           <button
@@ -847,17 +833,31 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => handleTabChange('sales_order')}
+            onClick={() => handleTabChange('inventory')}
             className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
-              activeTab === 'sales_order'
+              activeTab === 'inventory'
                 ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
                 : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
             }`}
-            id="tab-sales-order"
-            title="ÓRDENES DE VENTA"
+            id="tab-inventory"
+            title="INVENTARIO"
           >
-            <ClipboardList size={16} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/50'} />
-            {isSidebarExpanded && <span className="truncate">ÓRDENES DE VENTA</span>}
+            <Warehouse size={16} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/50'} />
+            {isSidebarExpanded && <span className="truncate">INVENTARIO</span>}
+          </button>
+
+          <button
+            onClick={() => handleTabChange('history')}
+            className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+              activeTab === 'history'
+                ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
+                : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+            }`}
+            id="tab-history"
+            title="HISTORIAL DE DESPACHOS"
+          >
+            <History size={16} className={activeTab === 'history' ? 'text-white' : 'text-app-text/50'} />
+            {isSidebarExpanded && <span className="truncate">HISTORIAL DE DESPACHOS</span>}
           </button>
         </nav>
 
@@ -938,10 +938,10 @@ export default function App() {
               </div>
               <h2 className="text-sm sm:text-base font-bold text-app-text tracking-tight mt-0.5 truncate">
                 {activeTab === 'generate' && "Nuevo Packing List"}
-                {activeTab === 'history' && "Historial de Despachos"}
-                {activeTab === 'inventory' && "Inventario"}
-                {activeTab === 'catalogs' && "Catálogos"}
                 {activeTab === 'sales_order' && "Órdenes de Venta"}
+                {activeTab === 'catalogs' && "Catálogos"}
+                {activeTab === 'inventory' && "Inventario"}
+                {activeTab === 'history' && "Historial de Despachos"}
               </h2>
             </div>
           </div>

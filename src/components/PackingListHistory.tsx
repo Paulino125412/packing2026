@@ -2,9 +2,10 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { PackingList, Client, Seller, Provider, Article, RollItem } from '../types';
 import { db, deleteDoc, updateDoc, runTransaction } from '../firebase';
 import { doc } from 'firebase/firestore';
-import { Search, Filter, Printer, Trash2, Calendar, User, Eye, Layers, FileText, AlertTriangle, CheckCircle, RefreshCw, X, Edit2, FileSpreadsheet, MessageCircle, Mail, Plus, MoreVertical } from 'lucide-react';
+import { Search, Filter, Printer, Trash2, Calendar, User, Eye, Layers, FileText, AlertTriangle, CheckCircle, RefreshCw, X, Edit2, FileSpreadsheet, MessageCircle, Mail, Plus, MoreVertical, Tag } from 'lucide-react';
 import { exportPackingListSummaryToExcel, exportPackingListFullDetailsToExcel, exportSinglePackingListToExcel } from '../utils/excelExport';
 import AlertBanner from './AlertBanner';
+import PrintRollLabelsModal, { PrintableRollLabel } from './PrintRollLabelsModal';
 
 interface PackingListHistoryProps {
   packingLists: PackingList[];
@@ -50,6 +51,9 @@ export default function PackingListHistory({
 
   // State for row actions dropdown menu
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+
+  // State for roll labels printing
+  const [printLabelsPL, setPrintLabelsPL] = useState<PackingList | null>(null);
 
   // Custom modal states for secure deletion
   const [deleteTarget, setDeleteTarget] = useState<PackingList | null>(null);
@@ -549,7 +553,7 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="warehouse-tag">{pl.packingListNo}</span>
                           {(!pl.guideNumber || pl.guideNumber.trim() === '') ? (
-                            <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded uppercase tracking-wider bg-[#B5822A]/10 text-[#B5822A] border border-[#B5822A]/25">
+                            <span className="inline-block px-1.5 py-0.5 text-[9px] font-bold rounded uppercase tracking-wider bg-app-warning/10 text-app-warning border border-app-warning/25">
                               SIN GUÍA
                             </span>
                           ) : (
@@ -666,6 +670,18 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
                                     >
                                       <FileSpreadsheet size={14} className="text-app-text/60" />
                                       <span>Exportar a Excel</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => {
+                                        setOpenMenuId(null);
+                                        setPrintLabelsPL(pl);
+                                      }}
+                                      className="w-full text-left px-3 py-2 hover:bg-app-bg flex items-center gap-2.5 text-app-text/80 hover:text-app-primary transition cursor-pointer font-semibold"
+                                      title="Imprimir etiquetas con Código de Barras y QR de todos los rollos de este packing"
+                                    >
+                                      <Tag size={14} className="text-app-primary" />
+                                      <span>Etiquetas de Rollos (QR)</span>
                                     </button>
 
                                     <button
@@ -795,6 +811,33 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
 
           </div>
         </div>
+      )}
+
+      {/* Print Roll Labels Modal for whole packing list */}
+      {printLabelsPL && (
+        <PrintRollLabelsModal
+          rolls={printLabelsPL.items.map((item, idx) => {
+            const art = articles.find(a => a.id === item.articleId);
+            const prov = providers.find(p => p.id === item.providerId);
+            return {
+              id: item.id || `pl-item-${idx}`,
+              rollNumber: item.rollNumber,
+              articleId: item.articleId,
+              articleName: art?.name || 'Tela Almacén',
+              providerId: item.providerId || '',
+              providerName: prov?.name || 'Proveedor',
+              meters: item.meters,
+              initialMeters: item.meters,
+              lot: item.lot,
+              partida: item.partida,
+              tono: item.tono,
+              width: item.width,
+              weight: item.weight,
+              createdAt: printLabelsPL.createdAt || printLabelsPL.date,
+            };
+          })}
+          onClose={() => setPrintLabelsPL(null)}
+        />
       )}
 
     </div>

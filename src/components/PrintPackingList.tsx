@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useLayoutEffect, useRef } from 'react';
 import { PackingList, PackingListItem, Client, Seller, Provider, Article } from '../types';
-import { FileText, Printer, X, AlertTriangle, MessageCircle, Edit2 } from 'lucide-react';
+import { FileText, Printer, X, AlertTriangle, MessageCircle, Edit2, Tag } from 'lucide-react';
+import PrintRollLabelsModal, { PrintableRollLabel } from './PrintRollLabelsModal';
 
 export interface PrintableRow {
   type: 'header' | 'roll' | 'footer';
@@ -184,6 +185,7 @@ export default function PrintPackingList({
 
   // Active View Tab: 'packing_list' or 'guia_remision'
   const [activeView, setActiveView] = React.useState<'packing_list' | 'guia_remision'>('packing_list');
+  const [showRollLabels, setShowRollLabels] = React.useState(false);
 
   // Guía de Remisión Electronic Fields (with highly-intelligent defaults)
   const [guiaSeries, setGuiaSeries] = React.useState('T001');
@@ -715,6 +717,15 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
               </button>
             )}
             <button
+              onClick={() => setShowRollLabels(true)}
+              className="px-4 py-1.5 bg-app-surface border border-app-border hover:bg-app-bg text-app-text hover:text-app-primary rounded font-bold text-xs flex items-center gap-2 transition cursor-pointer shadow-2xs uppercase tracking-wider"
+              id="btn-print-labels-from-view"
+              title="Imprimir etiquetas con Código de Barras y QR para todos los rollos de este packing"
+            >
+              <Tag size={13} className="text-app-primary" />
+              Etiquetas (QR)
+            </button>
+            <button
               onClick={handleShareWhatsApp}
               className="px-4 py-1.5 bg-[#25D366] hover:bg-[#128C7E] text-white rounded font-bold text-xs flex items-center gap-2 transition cursor-pointer shadow-xs uppercase tracking-wider"
               id="btn-whatsapp-share-print"
@@ -1245,6 +1256,33 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
           </div>
         </div>
       </div>
+
+      {/* Roll Labels Modal */}
+      {showRollLabels && (
+        <PrintRollLabelsModal
+          rolls={packingList.items.map((item, idx) => {
+            const art = articles.find(a => a.id === item.articleId);
+            const prov = providers.find(p => p.id === item.providerId);
+            return {
+              id: item.id || `pl-roll-${idx}`,
+              rollNumber: item.rollNumber,
+              articleId: item.articleId,
+              articleName: art?.name || 'Tela Almacén',
+              providerId: item.providerId || '',
+              providerName: prov?.name || 'Proveedor',
+              meters: item.meters,
+              initialMeters: item.meters,
+              lot: item.lot,
+              partida: item.partida,
+              tono: item.tono,
+              width: item.width,
+              weight: item.weight,
+              createdAt: packingList.createdAt || packingList.date,
+            };
+          })}
+          onClose={() => setShowRollLabels(false)}
+        />
+      )}
     </div>
   );
 }

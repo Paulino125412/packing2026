@@ -3,11 +3,13 @@ import { RollItem, Provider, Article } from '../types';
 import { db, addDoc, updateDoc, deleteDoc, fetchAllInventoryDocs, fetchAllSoldRolls } from '../firebase';
 import { collection, doc, setDoc } from 'firebase/firestore';
 import InventoryExcelPasteParser from './inventory/InventoryExcelPasteParser';
-import { Search, Filter, Plus, FileSpreadsheet, Info, Wrench, Trash2, ShieldAlert, ArrowDownUp, X, CheckCircle, RefreshCw, Package } from 'lucide-react';
+import { Search, Filter, Plus, FileSpreadsheet, Info, Wrench, Trash2, ShieldAlert, ArrowDownUp, X, CheckCircle, RefreshCw, Package, Tag, QrCode, ScanLine, Printer, CheckSquare, Square } from 'lucide-react';
 import { exportInventoryToExcel } from '../utils/excelExport';
 import AlertBanner from './AlertBanner';
 import { useToast } from '../context/ToastContext';
 import { analyzeSystemError } from '../lib/diagnostics';
+import PrintRollLabelsModal, { PrintableRollLabel } from './PrintRollLabelsModal';
+import BarcodeScannerModal from './BarcodeScannerModal';
 
 interface InventoryManagerProps {
   inventory: RollItem[];
@@ -136,11 +138,83 @@ export default function InventoryManager({
   const [adjustedMeters, setAdjustedMeters] = useState<number>(0);
   const [adjustNotes, setAdjustNotes] = useState('');
 
+  // Roll Label Printing & Barcode Scanner States
+  const [isPrintLabelsOpen, setIsPrintLabelsOpen] = useState(false);
+  const [rollsToPrint, setRollsToPrint] = useState<PrintableRollLabel[]>([]);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [selectedRollIds, setSelectedRollIds] = useState<Set<string>>(new Set());
+
   // Dynamic config for selected provider
   const activeProviderConfig = useMemo(() => {
     if (!selectedProvId) return null;
     return providers.find(p => p.id === selectedProvId) || null;
   }, [selectedProvId, providers]);
+
+  // Helper to convert RollItem to PrintableRollLabel
+  const mapRollToPrintableLabel = (roll: RollItem): PrintableRollLabel => {
+    const article = articles.find(a => a.id === roll.articleId);
+    const provider = providers.find(p => p.id === roll.providerId);
+    return {
+      id: roll.id,
+      rollNumber: roll.rollNumber,
+      articleId: roll.articleId,
+      articleName: article?.name || 'Tela Almacén',
+      providerId: roll.providerId,
+      providerName: provider?.name || 'Proveedor',
+      meters: roll.currentMeters > 0 ? roll.currentMeters : roll.initialMeters,
+      initialMeters: roll.initialMeters,
+      lot: roll.lot,
+      partida: roll.partida,
+      tono: roll.tono,
+      width: roll.width,
+      weight: roll.weight,
+      createdAt: roll.createdAt,
+    };
+  };
+
+  // Print a single roll label
+  const handlePrintSingleRoll = (roll: RollItem) => {
+    setRollsToPrint([mapRollToPrintableLabel(roll)]);
+    setIsPrintLabelsOpen(true);
+  };
+
+  // Print bulk/selected roll labels
+  const handlePrintBulkRolls = (onlySelected = false) => {
+    const targetRolls = onlySelected
+      ? effectiveInventory.filter(r => selectedRollIds.has(r.id))
+      : filteredInventory;
+
+    if (targetRolls.length === 0) {
+      toast.warning('No hay rollos seleccionados o filtrados para imprimir etiquetas.');
+      return;
+    }
+
+    const labels = targetRolls.map(mapRollToPrintableLabel);
+    setRollsToPrint(labels);
+    setIsPrintLabelsOpen(true);
+  };
+
+  // Multi-select toggle
+  const toggleSelectRoll = (rollId: string) => {
+    setSelectedRollIds(prev => {
+      const next = new Set(prev);
+      if (next.has(rollId)) {
+        next.delete(rollId);
+      } else {
+        next.add(rollId);
+      }
+      return next;
+    });
+  };
+
+  // Toggle select all filtered
+  const toggleSelectAllFiltered = () => {
+    if (selectedRollIds.size >= filteredInventory.length && filteredInventory.length > 0) {
+      setSelectedRollIds(new Set());
+    } else {
+      setSelectedRollIds(new Set(filteredInventory.map(r => r.id)));
+    }
+  };
 
   // Handle provider change during creation
   const handleProviderChange = (provId: string) => {
@@ -892,7 +966,18 @@ export default function InventoryManager({
         </div>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
           <div className="md:col-span-2">
-            <label className="block text-[11px] font-bold text-app-text/60 mb-1.5 uppercase tracking-wider">Búsqueda rápida (Criterios)</label>
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="block text-[11px] font-bold text-app-text/60 uppercase tracking-wider">Búsqueda rápida (Criterios)</label>
+              <button
+                type="button"
+                onClick={() => setIsScannerOpen(true)}
+                className="text-[10px] font-bold text-app-primary hover:text-app-primary/80 flex items-center gap-1 uppercase tracking-wider cursor-pointer"
+                title="Escanear rollo con cámara o lector USB"
+              >
+                <ScanLine size={12} />
+                <span>Escanear Código / QR</span>
+              </button>
+            </div>
             <div className="relative">
               <Search className="absolute left-3 top-2 text-app-text/45" size={13} />
               <input
@@ -972,10 +1057,36 @@ export default function InventoryManager({
         </div>
 
         <div className="flex flex-wrap justify-between items-center gap-3 mt-5 pt-4 border-t border-app-border">
-          <p className="text-xs text-app-text/60 font-medium">
-            Encontrados: <span className="font-semibold text-app-text">{filteredInventory.length.toLocaleString('es-PE')}</span> rollos (Total: <span className="font-semibold text-app-text">{filteredInventory.reduce((sum, item) => sum + item.currentMeters, 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m</span> disponibles) en almacén.
-          </p>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-3 flex-wrap">
+            <p className="text-xs text-app-text/60 font-medium">
+              Encontrados: <span className="font-semibold text-app-text">{filteredInventory.length.toLocaleString('es-PE')}</span> rollos (Total: <span className="font-semibold text-app-text">{filteredInventory.reduce((sum, item) => sum + item.currentMeters, 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m</span> disponibles).
+            </p>
+            {selectedRollIds.size > 0 && (
+              <span className="px-2 py-0.5 bg-app-primary/10 text-app-primary border border-app-primary/30 rounded text-[10px] font-bold uppercase tracking-wider">
+                {selectedRollIds.size} seleccionados
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => handlePrintBulkRolls(selectedRollIds.size > 0)}
+              disabled={filteredInventory.length === 0}
+              className={`px-3.5 py-1.5 rounded text-[10px] font-bold flex items-center gap-1.5 transition uppercase tracking-wider cursor-pointer shadow-xs ${
+                selectedRollIds.size > 0
+                  ? 'bg-app-primary text-white hover:bg-app-primary/90'
+                  : 'bg-app-surface hover:bg-app-bg text-app-text border border-app-border'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+              id="btn-print-roll-labels"
+              title="Imprimir etiquetas con Código de Barras / QR para rollos"
+            >
+              <Tag size={12} className={selectedRollIds.size > 0 ? 'text-white' : 'text-app-primary'} />
+              <span>
+                {selectedRollIds.size > 0
+                  ? `Imprimir Etiquetas (${selectedRollIds.size})`
+                  : `Imprimir Etiquetas (${filteredInventory.length})`}
+              </span>
+            </button>
+
             <button
               onClick={handleExportExcel}
               className="px-4 py-1.5 bg-app-surface hover:bg-app-bg text-app-text border border-app-border rounded text-[10px] font-bold flex items-center gap-1.5 transition uppercase tracking-wider cursor-pointer"
@@ -1012,7 +1123,21 @@ export default function InventoryManager({
           <table className="w-full text-left border-collapse">
             <thead className="sticky top-0 z-10 bg-app-surface">
               <tr className="bg-app-surface border-b border-app-border text-[10px] text-app-text/60 uppercase font-bold tracking-wider">
-                <th className="p-4 pl-5">Número de Rollo</th>
+                <th className="p-3 pl-4 w-10 text-center">
+                  <button
+                    type="button"
+                    onClick={toggleSelectAllFiltered}
+                    className="cursor-pointer text-app-text/60 hover:text-app-primary"
+                    title={selectedRollIds.size === filteredInventory.length && filteredInventory.length > 0 ? "Deseleccionar todos" : "Seleccionar todos"}
+                  >
+                    {selectedRollIds.size > 0 && selectedRollIds.size >= filteredInventory.length ? (
+                      <CheckSquare size={14} className="text-app-primary" />
+                    ) : (
+                      <Square size={14} />
+                    )}
+                  </button>
+                </th>
+                <th className="p-4">Número de Rollo</th>
                 <th className="p-4">Artículo / Tela</th>
                 <th className="p-4">Proveedor</th>
                 <th className="p-4 font-mono">Lote</th>
@@ -1035,7 +1160,7 @@ export default function InventoryManager({
                 <tr>
                   <td
                     colSpan={
-                      10 +
+                      11 +
                       (inventory.some(item => item.width && item.width.trim() !== '') ? 1 : 0) +
                       (inventory.some(item => item.weight && item.weight.trim() !== '') ? 1 : 0)
                     }
@@ -1094,9 +1219,24 @@ export default function InventoryManager({
                   const provider = providers.find(p => p.id === item.providerId);
                   const isAvailable = item.currentMeters > 0;
 
+                  const isSelected = selectedRollIds.has(item.id);
+
                   return (
-                    <tr key={item.id} className={`hover:bg-app-bg/40 transition duration-150 ${!isAvailable ? 'bg-app-bg/20 text-app-text/45' : ''}`}>
-                      <td className="p-4 pl-5 font-mono font-bold text-app-text">
+                    <tr key={item.id} className={`hover:bg-app-bg/40 transition duration-150 ${isSelected ? 'bg-app-primary/5' : !isAvailable ? 'bg-app-bg/20 text-app-text/45' : ''}`}>
+                      <td className="p-3 pl-4 text-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleSelectRoll(item.id)}
+                          className="cursor-pointer text-app-text/60 hover:text-app-primary"
+                        >
+                          {isSelected ? (
+                            <CheckSquare size={14} className="text-app-primary" />
+                          ) : (
+                            <Square size={14} />
+                          )}
+                        </button>
+                      </td>
+                      <td className="p-4 font-mono font-bold text-app-text">
                         <span className="warehouse-tag">{item.rollNumber}</span>
                       </td>
                       <td className="p-4 font-semibold text-app-text">
@@ -1163,6 +1303,14 @@ export default function InventoryManager({
                             </form>
                           ) : (
                             <div className="flex justify-end items-center gap-1.5 no-print">
+                              <button
+                                onClick={() => handlePrintSingleRoll(item)}
+                                className="px-2 py-1 bg-app-surface hover:bg-app-bg text-app-text/80 hover:text-app-primary border border-app-border rounded transition cursor-pointer flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider"
+                                title="Imprimir etiqueta con Código de Barras y QR"
+                              >
+                                <Tag size={12} className="text-app-primary" />
+                                <span className="hidden md:inline">Etiqueta</span>
+                              </button>
                               <button
                                 onClick={() => {
                                   setAdjustingId(item.id);
@@ -1432,6 +1580,29 @@ export default function InventoryManager({
 
           </div>
         </div>
+      )}
+
+      {/* Roll Labels Printing Modal (Thermal & A4 Stickers with Barcode + QR) */}
+      {isPrintLabelsOpen && (
+        <PrintRollLabelsModal
+          rolls={rollsToPrint}
+          onClose={() => setIsPrintLabelsOpen(false)}
+        />
+      )}
+
+      {/* Barcode / QR Scanner Modal */}
+      {isScannerOpen && (
+        <BarcodeScannerModal
+          isOpen={isScannerOpen}
+          onClose={() => setIsScannerOpen(false)}
+          onScanResult={(scannedItem) => {
+            if (scannedItem?.rollNumber) {
+              setSearchTerm(scannedItem.rollNumber);
+              toast.success(`Rollo detectado: ${scannedItem.rollNumber}`);
+            }
+            setIsScannerOpen(false);
+          }}
+        />
       )}
 
     </div>
