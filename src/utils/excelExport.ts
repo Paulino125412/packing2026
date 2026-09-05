@@ -218,7 +218,7 @@ async function downloadWorkbook(workbook: ExcelJS.Workbook, filename: string) {
 export async function exportCatalogToExcel(
   type: 'clients' | 'articles' | 'providers' | 'sellers',
   items: any[],
-  extraContext?: { providers?: Provider[]; articles?: Article[] }
+  extraContext?: { providers?: Provider[]; articles?: Article[]; sellers?: Seller[] }
 ) {
   const ExcelJS = (await import('exceljs')).default;
   const workbook = new ExcelJS.Workbook();
@@ -232,8 +232,8 @@ export async function exportCatalogToExcel(
   if (type === 'clients') {
     sheetName = 'Clientes';
     title = 'Catálogo Oficial de Clientes';
-    headers = ['N°', 'Cliente / Razón Social', 'DNI / RUC', 'Correo Electrónico', 'Teléfono', 'Dirección de Despacho'];
-    alignments = ['center', 'left', 'center', 'left', 'center', 'left'];
+    headers = ['N°', 'Cliente / Razón Social', 'DNI / RUC', 'Vendedor Asignado', 'Correo Electrónico', 'Teléfono', 'Dirección Fiscal', 'Dirección de Despacho'];
+    alignments = ['center', 'left', 'center', 'left', 'left', 'center', 'left', 'left'];
   } else if (type === 'articles') {
     sheetName = 'Artículos';
     title = 'Catálogo de Artículos y Telas';
@@ -262,7 +262,17 @@ export async function exportCatalogToExcel(
     const row = worksheet.getRow(rowNum);
 
     if (type === 'clients') {
-      row.values = [index + 1, item.name || '', item.dni || '-', item.email || '-', item.phone || '-', item.address || '-'];
+      const sellerName = extraContext?.sellers?.find(s => s.id === item.defaultSellerId)?.name || 'Auto (Por Historial)';
+      row.values = [
+        index + 1,
+        item.name || '',
+        item.dni || '-',
+        sellerName,
+        item.email || '-',
+        item.phone || '-',
+        item.fiscalAddress || '-',
+        item.address || '-'
+      ];
     } else if (type === 'articles') {
       const provName = extraContext?.providers?.find(p => p.id === item.providerId)?.name || 'N/A';
       row.values = [index + 1, item.code || '-', item.name || '', item.description || '-', provName, item.unit || 'metros'];

@@ -378,6 +378,30 @@ export default function SalesOrderManager({
       setDispatchContactPhone(found.phone || '');
       setBillingName(found.name);
       setBillingRucDni(found.dni || '');
+
+      // Auto-assign seller if client has default seller configured or from historical orders
+      if (found.defaultSellerId && sellers.some(s => s.id === found.defaultSellerId)) {
+        const matchingSeller = sellers.find(s => s.id === found.defaultSellerId);
+        if (matchingSeller) {
+          setSellerId(matchingSeller.id);
+          setSellerName(matchingSeller.name);
+        }
+      } else {
+        const prevOrder = orders.find(o => (o.clientId === found.id || o.clientName?.toLowerCase().trim() === found.name.toLowerCase().trim()) && (o.sellerId || o.sellerName));
+        if (prevOrder) {
+          if (prevOrder.sellerId && sellers.some(s => s.id === prevOrder.sellerId)) {
+            const matchingSeller = sellers.find(s => s.id === prevOrder.sellerId);
+            if (matchingSeller) {
+              setSellerId(matchingSeller.id);
+              setSellerName(matchingSeller.name);
+            }
+          } else if (prevOrder.sellerName) {
+            setSellerName(prevOrder.sellerName);
+            const matchingSeller = sellers.find(s => s.name?.toLowerCase().trim() === prevOrder.sellerName.toLowerCase().trim());
+            if (matchingSeller) setSellerId(matchingSeller.id);
+          }
+        }
+      }
     }
   };
 

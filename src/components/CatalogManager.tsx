@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Client, Seller, Provider, Article, PackingList, RollItem } from '../types';
 import { db, addDoc, updateDoc, deleteDoc, fetchAllInventoryDocs } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
-import { Plus, Edit2, Trash2, Users, Briefcase, Truck, Layers, Check, X, Search, FileSpreadsheet, Building, Loader2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Users, User, Briefcase, Truck, Layers, Check, X, Search, FileSpreadsheet, Building, Loader2 } from 'lucide-react';
 import { exportCatalogToExcel } from '../utils/excelExport';
 import AlertBanner from './AlertBanner';
 import { lookupRucOrDni } from '../lib/sunat';
@@ -91,6 +91,7 @@ export default function CatalogManager({
   const [cliFiscalAddress, setCliFiscalAddress] = useState('');
   const [cliAddress, setCliAddress] = useState('');
   const [cliContactPerson, setCliContactPerson] = useState('');
+  const [cliDefaultSellerId, setCliDefaultSellerId] = useState('');
   const [loadingSunat, setLoadingSunat] = useState(false);
   const [sunatStatusMsg, setSunatStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -153,6 +154,7 @@ export default function CatalogManager({
     setCliFiscalAddress('');
     setCliAddress('');
     setCliContactPerson('');
+    setCliDefaultSellerId('');
 
     // Sellers
     setSelName('');
@@ -184,6 +186,7 @@ export default function CatalogManager({
       setCliFiscalAddress(item.fiscalAddress || '');
       setCliAddress(item.address || '');
       setCliContactPerson(item.contactPerson || '');
+      setCliDefaultSellerId(item.defaultSellerId || '');
     } else if (tab === 'sellers') {
       setSelName(item.name);
       setSelEmail(item.email);
@@ -287,7 +290,8 @@ export default function CatalogManager({
           phone: cliPhone,
           fiscalAddress: cliFiscalAddress,
           address: cliAddress,
-          contactPerson: cliContactPerson
+          contactPerson: cliContactPerson,
+          defaultSellerId: cliDefaultSellerId || ''
         };
 
         if (editingId) {
@@ -616,7 +620,7 @@ export default function CatalogManager({
       });
     }
 
-    exportCatalogToExcel(activeTab, listToExport, { providers, articles });
+    exportCatalogToExcel(activeTab, listToExport, { providers, articles, sellers });
   };
 
   return (
@@ -967,6 +971,24 @@ export default function CatalogManager({
                     placeholder="Ej. Juan Pérez (Encargado de Recepción)"
                     className="w-full px-3 py-1.5 border border-app-border rounded bg-app-surface text-app-text text-xs focus:outline-hidden focus:ring-1 focus:ring-app-primary"
                   />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-app-text/80 mb-1 uppercase tracking-wider flex items-center justify-between">
+                    <span>Vendedor Asignado / Habitual (Opcional)</span>
+                    <span className="text-[10px] text-app-text/50 font-normal lowercase">Se autoseleccionará en los Packing Lists</span>
+                  </label>
+                  <select
+                    value={cliDefaultSellerId}
+                    onChange={e => setCliDefaultSellerId(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-app-border rounded bg-app-surface text-app-text text-xs focus:outline-hidden focus:ring-1 focus:ring-app-primary"
+                  >
+                    <option value="">-- Sin Vendedor Fijo (Aprender automáticamente del historial) --</option>
+                    {sellers.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} {s.email ? `(${s.email})` : ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             )}
@@ -1336,6 +1358,7 @@ export default function CatalogManager({
                   <tr className="bg-app-bg/40 border-b border-app-border text-xs text-app-text/60 uppercase font-semibold">
                     <th className="p-3">Cliente / Razón Social</th>
                     <th className="p-3">DNI / RUC</th>
+                    <th className="p-3">Vendedor Habitual</th>
                     <th className="p-3">Contacto</th>
                     <th className="p-3">Dirección Fiscal</th>
                     <th className="p-3">Dirección de Despacho</th>
@@ -1346,17 +1369,19 @@ export default function CatalogManager({
                   {clients.filter(c => {
                     const q = (searchQuery || '').toLowerCase().trim();
                     if (!q) return true;
+                    const defSellerName = sellers.find(s => s.id === c.defaultSellerId)?.name || '';
                     return (
                       (c.name || '').toLowerCase().includes(q) ||
                       (c.dni || '').toLowerCase().includes(q) ||
                       (c.email || '').toLowerCase().includes(q) ||
                       (c.phone || '').toLowerCase().includes(q) ||
                       (c.fiscalAddress || '').toLowerCase().includes(q) ||
-                      (c.address || '').toLowerCase().includes(q)
+                      (c.address || '').toLowerCase().includes(q) ||
+                      defSellerName.toLowerCase().includes(q)
                     );
                   }).length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-10 text-center">
+                      <td colSpan={7} className="p-10 text-center">
                         <div className="max-w-sm mx-auto flex flex-col items-center justify-center text-center">
                           <div className="w-14 h-14 rounded-full bg-app-bg border border-app-border flex items-center justify-center text-app-primary mb-3 shadow-xs">
                             {clients.length === 0 ? <Users size={28} /> : <Search size={28} className="text-app-text/40" />}
@@ -1395,6 +1420,7 @@ export default function CatalogManager({
                     clients.filter(c => {
                       const q = (searchQuery || '').toLowerCase().trim();
                       if (!q) return true;
+                      const defSellerName = sellers.find(s => s.id === c.defaultSellerId)?.name || '';
                       return (
                         (c.name || '').toLowerCase().includes(q) ||
                         (c.dni || '').toLowerCase().includes(q) ||
@@ -1402,12 +1428,25 @@ export default function CatalogManager({
                         (c.phone || '').toLowerCase().includes(q) ||
                         (c.contactPerson || '').toLowerCase().includes(q) ||
                         (c.fiscalAddress || '').toLowerCase().includes(q) ||
-                        (c.address || '').toLowerCase().includes(q)
+                        (c.address || '').toLowerCase().includes(q) ||
+                        defSellerName.toLowerCase().includes(q)
                       );
                     }).map(c => (
                       <tr key={c.id} className="hover:bg-app-bg/40 border-b border-app-border/60 text-xs">
                         <td className="p-3 font-semibold text-app-text">{c.name}</td>
                         <td className="p-3 font-mono text-xs text-app-text/90">{c.dni}</td>
+                        <td className="p-3 text-xs">
+                          {c.defaultSellerId && sellers.some(s => s.id === c.defaultSellerId) ? (
+                            <span className="inline-flex items-center gap-1 font-semibold text-app-primary bg-app-primary/10 border border-app-primary/20 px-2 py-0.5 rounded text-[11px]">
+                              <User size={11} className="shrink-0" />
+                              {sellers.find(s => s.id === c.defaultSellerId)?.name}
+                            </span>
+                          ) : (
+                            <span className="text-app-text/40 text-[11px] italic">
+                              Auto (Por historial)
+                            </span>
+                          )}
+                        </td>
                         <td className="p-3 text-xs">
                           {c.contactPerson && <div className="text-app-primary font-bold">{c.contactPerson}</div>}
                           {c.phone && <div className="text-app-text/60 font-mono">{c.phone}</div>}

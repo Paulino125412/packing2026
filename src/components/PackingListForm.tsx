@@ -464,6 +464,33 @@ export default function PackingListForm({
       } else {
         setDispatchAddress('');
       }
+
+      // Auto-assign Seller:
+      // 1. Direct explicit assigned seller from client catalog
+      let matchedSellerId = '';
+      if (selectedClient?.defaultSellerId && sellers.some(s => s.id === selectedClient.defaultSellerId)) {
+        matchedSellerId = selectedClient.defaultSellerId;
+      } else {
+        // 2. Derive from history in packing lists:
+        const clientHistory = packingLists
+          .filter(pl => (pl.clientId === newClientId || (selectedClient && pl.clientId === selectedClient.name)) && pl.sellerId)
+          .sort((a, b) => new Date(b.date || b.createdAt || 0).getTime() - new Date(a.date || a.createdAt || 0).getTime());
+
+        if (clientHistory.length > 0) {
+          const recentSellerId = clientHistory[0].sellerId;
+          if (sellers.some(s => s.id === recentSellerId)) {
+            matchedSellerId = recentSellerId;
+          }
+        }
+      }
+
+      if (matchedSellerId) {
+        setSellerId(matchedSellerId);
+        const sellerObj = sellers.find(s => s.id === matchedSellerId);
+        if (sellerObj) {
+          toast.info(`Vendedor asignado automáticamente: ${sellerObj.name}`);
+        }
+      }
     } else {
       setDispatchAddress('');
     }
@@ -479,6 +506,7 @@ export default function PackingListForm({
         phone: fields.phone || '',
         fiscalAddress: fields.fiscalAddress || '',
         address: fields.address || '',
+        defaultSellerId: fields.defaultSellerId || sellerId || '',
         createdAt: new Date().toISOString()
       };
       const docRef = await addDoc(collection(db, 'clients'), newClientData);

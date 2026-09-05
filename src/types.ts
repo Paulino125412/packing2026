@@ -29,6 +29,7 @@ export interface Client {
   address: string;
   fiscalAddress?: string;
   contactPerson?: string;
+  defaultSellerId?: string;
   createdAt: string;
 }
 
