@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { SalesOrder, Client, Seller, Article } from '../types';
-import { Printer, X, FileDown } from 'lucide-react';
+import { Printer, X, FileDown, MessageCircle } from 'lucide-react';
 import AlertBanner from './AlertBanner';
 
 interface PrintSalesOrderProps {
@@ -91,6 +91,7 @@ export default function PrintSalesOrder({
   onClose
 }: PrintSalesOrderProps) {
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isSharingWhatsApp, setIsSharingWhatsApp] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
 
   const handlePrint = () => {
@@ -141,14 +142,18 @@ export default function PrintSalesOrder({
     maximumFractionDigits: 2
   });
 
-  const handleGeneratePDF = async () => {
+  const handlePdfAction = async (action: 'download' | 'whatsapp') => {
     const element = document.querySelector('.sales-ficha-print-sheet') as HTMLElement;
     if (!element) return;
 
     setPdfError(null);
 
     try {
-      setIsGeneratingPDF(true);
+      if (action === 'download') {
+        setIsGeneratingPDF(true);
+      } else {
+        setIsSharingWhatsApp(true);
+      }
 
       const clientNameClean = (order.clientName || 'Cliente').replace(/[^a-zA-Z0-9_-]/g, '_');
       const filename = `Ficha_Venta_${clientNameClean}_${order.orderNo || ''}.pdf`;
@@ -195,29 +200,47 @@ export default function PrintSalesOrder({
 
       const pdfBlob = await response.blob();
 
-      // Download file to user device
-      const blobUrl = URL.createObjectURL(pdfBlob);
-      const downloadLink = document.createElement('a');
-      downloadLink.href = blobUrl;
-      downloadLink.download = filename;
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      document.body.removeChild(downloadLink);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-
-      // If mobile supports Web Share API with files, trigger native share menu
-      if (navigator.canShare && navigator.share) {
-        try {
-          const file = new File([pdfBlob], filename, { type: 'application/pdf' });
-          if (navigator.canShare({ files: [file] })) {
+      if (action === 'download') {
+        // Download file to user device (exact original download logic preserved)
+        const blobUrl = URL.createObjectURL(pdfBlob);
+        const downloadLink = document.createElement('a');
+        downloadLink.href = blobUrl;
+        downloadLink.download = filename;
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      } else {
+        // Enviar archivo PDF por WhatsApp (exactamente como estaba antes con Web Share API)
+        const file = new File([pdfBlob], filename, { type: 'application/pdf' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
             await navigator.share({
               files: [file],
               title: `Ficha de Venta - ${order.clientName || ''}`,
               text: `Adjunto Ficha de Venta N° ${order.orderNo || ''}`
             });
+          } catch (shareErr) {
+            // User cancelled share or non-critical error
           }
-        } catch (shareErr) {
-          // User cancelled share or non-critical error
+        } else {
+          // Si el navegador no soporta compartir archivos nativamente (ej. desktop sin Web Share),
+          // descargamos el PDF y abrimos WhatsApp para facilitar adjuntarlo
+          const blobUrl = URL.createObjectURL(pdfBlob);
+          const downloadLink = document.createElement('a');
+          downloadLink.href = blobUrl;
+          downloadLink.download = filename;
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
+          const clientObj = clients.find(c => c.id === order.clientId);
+          const rawPhone = order.dispatchContactPhone || clientObj?.phone || '';
+          const clientPhone = rawPhone.replace(/[^0-9]/g, '');
+          const message = `Adjunto Ficha de Venta N° ${order.orderNo || ''}`;
+          const baseUrl = clientPhone ? `https://wa.me/${clientPhone}` : `https://wa.me/`;
+          window.open(`${baseUrl}?text=${encodeURIComponent(message)}`, '_blank');
         }
       }
     } catch (err: any) {
@@ -225,6 +248,7 @@ export default function PrintSalesOrder({
       setPdfError(err?.message || 'No se pudo generar el PDF. Por favor reintente.');
     } finally {
       setIsGeneratingPDF(false);
+      setIsSharingWhatsApp(false);
     }
   };
 
@@ -239,13 +263,25 @@ export default function PrintSalesOrder({
 
           <div className="flex items-center gap-2 flex-wrap">
             <button
-              onClick={handleGeneratePDF}
-              disabled={isGeneratingPDF}
+              onClick={() => handlePdfAction('download')}
+              disabled={isGeneratingPDF || isSharingWhatsApp}
               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
-              title="Descargar documento PDF y enviar por WhatsApp"
+              title="Descargar documento en formato PDF"
+              id="btn-download-pdf-sales-order"
             >
               <FileDown size={14} />
-              {isGeneratingPDF ? 'Generando PDF...' : 'Descargar PDF / Enviar por WhatsApp'}
+              {isGeneratingPDF ? 'Generando PDF...' : 'Descargar PDF'}
+            </button>
+
+            <button
+              onClick={() => handlePdfAction('whatsapp')}
+              disabled={isGeneratingPDF || isSharingWhatsApp}
+              className="px-3 py-1.5 bg-[#25D366] hover:bg-[#128C7E] text-white font-bold text-xs rounded flex items-center gap-1.5 transition cursor-pointer shadow-xs disabled:opacity-50"
+              title="Enviar documento PDF por WhatsApp"
+              id="btn-share-whatsapp-sales-order"
+            >
+              <MessageCircle size={14} />
+              {isSharingWhatsApp ? 'Preparando PDF...' : 'Enviar por WhatsApp'}
             </button>
 
             <button

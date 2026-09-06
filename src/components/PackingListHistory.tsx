@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { PackingList, Client, Seller, Provider, Article, RollItem } from '../types';
 import { db, deleteDoc, updateDoc, runTransaction } from '../firebase';
 import { doc } from 'firebase/firestore';
@@ -49,8 +50,53 @@ export default function PackingListHistory({
   const [endDate, setEndDate] = useState('');
   const [showOnlyNoGuide, setShowOnlyNoGuide] = useState(false);
 
-  // State for row actions dropdown menu
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // State for row actions dropdown menu (portal-based to prevent clipping and scrolling block)
+  const [menuAnchor, setMenuAnchor] = useState<{
+    id: string;
+    pl: PackingList;
+    rect: DOMRect;
+  } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close floating action menu on outside click, window/container scroll, or Escape key
+  useEffect(() => {
+    if (!menuAnchor) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (menuRef.current && menuRef.current.contains(target)) {
+        return;
+      }
+      if (target.closest('[data-menu-trigger="true"]')) {
+        return;
+      }
+      setMenuAnchor(null);
+    };
+
+    const handleScroll = (e: Event) => {
+      // Allow scrolling freely without locking; close menu if scroll happens on page or table
+      if (menuRef.current && menuRef.current.contains(e.target as Node)) {
+        return;
+      }
+      setMenuAnchor(null);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuAnchor(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuAnchor]);
 
   // State for roll labels printing
   const [printLabelsPL, setPrintLabelsPL] = useState<PackingList | null>(null);
@@ -625,92 +671,26 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
 
                           <div className="relative inline-block text-left">
                             <button
+                              data-menu-trigger="true"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setOpenMenuId(openMenuId === pl.id ? null : pl.id);
+                                if (menuAnchor && menuAnchor.id === pl.id) {
+                                  setMenuAnchor(null);
+                                } else {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setMenuAnchor({ id: pl.id, pl, rect });
+                                }
                               }}
-                              className="p-1.5 bg-app-surface hover:bg-app-bg text-app-text/75 hover:text-app-text border border-app-border rounded transition cursor-pointer flex items-center justify-center shadow-2xs"
+                              className={`p-1.5 border rounded transition cursor-pointer flex items-center justify-center shadow-2xs ${
+                                menuAnchor?.id === pl.id
+                                  ? 'bg-app-bg text-app-primary border-app-primary'
+                                  : 'bg-app-surface hover:bg-app-bg text-app-text/75 hover:text-app-text border border-app-border'
+                              }`}
                               title="Más opciones"
                               id={`btn-menu-pl-${pl.packingListNo}`}
                             >
                               <MoreVertical size={14} />
                             </button>
-
-                            {openMenuId === pl.id && (
-                              <>
-                                <div
-                                  className="fixed inset-0 z-20"
-                                  onClick={() => setOpenMenuId(null)}
-                                />
-                                <div
-                                  className={`absolute right-0 ${
-                                    index >= filteredLists.length - 2 && filteredLists.length > 2
-                                      ? 'bottom-full mb-1'
-                                      : 'top-full mt-1'
-                                  } w-52 bg-app-surface border border-app-border rounded-md shadow-xl z-30 py-1 text-xs text-app-text divide-y divide-app-border/40 animate-fade-in`}
-                                >
-                                  <div className="py-1">
-                                    <button
-                                      onClick={() => {
-                                        setOpenMenuId(null);
-                                        onEdit(pl);
-                                      }}
-                                      className="w-full text-left px-3 py-2 hover:bg-app-bg flex items-center gap-2.5 text-app-text/80 hover:text-app-primary transition cursor-pointer font-semibold"
-                                    >
-                                      <Edit2 size={14} className="text-app-text/60" />
-                                      <span>Editar</span>
-                                    </button>
-
-                                    <button
-                                      onClick={() => {
-                                        setOpenMenuId(null);
-                                        handleExportSinglePL(pl);
-                                      }}
-                                      className="w-full text-left px-3 py-2 hover:bg-app-bg flex items-center gap-2.5 text-app-text/80 hover:text-app-secondary transition cursor-pointer font-semibold"
-                                    >
-                                      <FileSpreadsheet size={14} className="text-app-text/60" />
-                                      <span>Exportar a Excel</span>
-                                    </button>
-
-                                    <button
-                                      onClick={() => {
-                                        setOpenMenuId(null);
-                                        setPrintLabelsPL(pl);
-                                      }}
-                                      className="w-full text-left px-3 py-2 hover:bg-app-bg flex items-center gap-2.5 text-app-text/80 hover:text-app-primary transition cursor-pointer font-semibold"
-                                      title="Imprimir etiquetas con Código de Barras y QR de todos los rollos de este packing"
-                                    >
-                                      <Tag size={14} className="text-app-primary" />
-                                      <span>Etiquetas de Rollos (QR)</span>
-                                    </button>
-
-                                    <button
-                                      onClick={() => {
-                                        setOpenMenuId(null);
-                                        handleShareWhatsApp(pl);
-                                      }}
-                                      className="w-full text-left px-3 py-2 hover:bg-[#25D366]/10 flex items-center gap-2.5 text-app-text/80 hover:text-[#25D366] transition cursor-pointer font-semibold"
-                                    >
-                                      <MessageCircle size={14} className="text-[#25D366]" />
-                                      <span>Compartir por WhatsApp</span>
-                                    </button>
-                                  </div>
-
-                                  <div className="py-1">
-                                    <button
-                                      onClick={() => {
-                                        setOpenMenuId(null);
-                                        initiateDelete(pl);
-                                      }}
-                                      className="w-full text-left px-3 py-2 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center gap-2.5 text-red-600 dark:text-red-400 transition cursor-pointer font-semibold"
-                                    >
-                                      <Trash2 size={14} />
-                                      <span>Eliminar</span>
-                                    </button>
-                                  </div>
-                                </div>
-                              </>
-                            )}
                           </div>
                         </div>
                       </td>
@@ -838,6 +818,95 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
           })}
           onClose={() => setPrintLabelsPL(null)}
         />
+      )}
+
+      {/* Floating Action Menu (Portal) - Avoids overflow clipping and unblocks scrolling */}
+      {menuAnchor && createPortal(
+        (() => {
+          const spaceBelow = window.innerHeight - menuAnchor.rect.bottom;
+          const spaceAbove = menuAnchor.rect.top;
+          // If less than 240px below the button, flip upwards if there is enough space above
+          const openUpwards = spaceBelow < 240 && spaceAbove > spaceBelow;
+          const pl = menuAnchor.pl;
+
+          return (
+            <div
+              ref={menuRef}
+              style={{
+                position: 'fixed',
+                ...(openUpwards
+                  ? { bottom: `${Math.max(8, window.innerHeight - menuAnchor.rect.top + 4)}px` }
+                  : { top: `${Math.max(8, menuAnchor.rect.bottom + 4)}px` }),
+                right: `${Math.max(8, window.innerWidth - menuAnchor.rect.right)}px`,
+                maxHeight: openUpwards
+                  ? `${Math.max(160, menuAnchor.rect.top - 16)}px`
+                  : `${Math.max(160, window.innerHeight - menuAnchor.rect.bottom - 16)}px`,
+              }}
+              className="w-52 bg-app-surface border border-app-border rounded-md shadow-2xl z-50 py-1 text-xs text-app-text divide-y divide-app-border/40 overflow-y-auto animate-fade-in"
+            >
+              <div className="py-1">
+                <button
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    onEdit(pl);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-app-bg flex items-center gap-2.5 text-app-text/80 hover:text-app-primary transition cursor-pointer font-semibold"
+                >
+                  <Edit2 size={14} className="text-app-text/60" />
+                  <span>Editar</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    handleExportSinglePL(pl);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-app-bg flex items-center gap-2.5 text-app-text/80 hover:text-app-secondary transition cursor-pointer font-semibold"
+                >
+                  <FileSpreadsheet size={14} className="text-app-text/60" />
+                  <span>Exportar a Excel</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    setPrintLabelsPL(pl);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-app-bg flex items-center gap-2.5 text-app-text/80 hover:text-app-primary transition cursor-pointer font-semibold"
+                  title="Imprimir etiquetas con Código de Barras y QR de todos los rollos de este packing"
+                >
+                  <Tag size={14} className="text-app-primary" />
+                  <span>Etiquetas de Rollos (QR)</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    handleShareWhatsApp(pl);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-[#25D366]/10 flex items-center gap-2.5 text-app-text/80 hover:text-[#25D366] transition cursor-pointer font-semibold"
+                >
+                  <MessageCircle size={14} className="text-[#25D366]" />
+                  <span>Compartir por WhatsApp</span>
+                </button>
+              </div>
+
+              <div className="py-1">
+                <button
+                  onClick={() => {
+                    setMenuAnchor(null);
+                    initiateDelete(pl);
+                  }}
+                  className="w-full text-left px-3 py-2 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center gap-2.5 text-red-600 dark:text-red-400 transition cursor-pointer font-semibold"
+                >
+                  <Trash2 size={14} />
+                  <span>Eliminar</span>
+                </button>
+              </div>
+            </div>
+          );
+        })(),
+        document.body
       )}
 
     </div>

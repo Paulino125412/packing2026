@@ -8,6 +8,7 @@ import AlertBanner from './AlertBanner';
 import { lookupRucOrDni } from '../lib/sunat';
 import { useToast } from '../context/ToastContext';
 import { analyzeSystemError } from '../lib/diagnostics';
+import ClientPreferredSellerSelector from './ClientPreferredSellerSelector';
 
 interface CatalogManagerProps {
   clients: Client[];
@@ -972,23 +973,12 @@ export default function CatalogManager({
                     className="w-full px-3 py-1.5 border border-app-border rounded bg-app-surface text-app-text text-xs focus:outline-hidden focus:ring-1 focus:ring-app-primary"
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-app-text/80 mb-1 uppercase tracking-wider flex items-center justify-between">
-                    <span>Vendedor Asignado / Habitual (Opcional)</span>
-                    <span className="text-[10px] text-app-text/50 font-normal lowercase">Se autoseleccionará en los Packing Lists</span>
-                  </label>
-                  <select
-                    value={cliDefaultSellerId}
-                    onChange={e => setCliDefaultSellerId(e.target.value)}
-                    className="w-full px-3 py-1.5 border border-app-border rounded bg-app-surface text-app-text text-xs focus:outline-hidden focus:ring-1 focus:ring-app-primary"
-                  >
-                    <option value="">-- Sin Vendedor Fijo (Aprender automáticamente del historial) --</option>
-                    {sellers.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} {s.email ? `(${s.email})` : ''}
-                      </option>
-                    ))}
-                  </select>
+                <div className="md:col-span-2 pt-0.5">
+                  <ClientPreferredSellerSelector
+                    sellerId={cliDefaultSellerId}
+                    onSelectSeller={setCliDefaultSellerId}
+                    sellers={sellers}
+                  />
                 </div>
               </div>
             )}
