@@ -8,6 +8,11 @@ const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
 
+// Standard health check route for container & proxy readiness
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: Date.now() });
+});
+
 // In-memory cache for fast repeat lookups
 const lookupCache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 1000 * 60 * 60 * 24; // 24 hours
