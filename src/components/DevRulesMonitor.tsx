@@ -27,6 +27,57 @@ export default function DevRulesMonitor({ data = {} }: DevRulesMonitorProps) {
   const [isAuditing, setIsAuditing] = useState(false);
   const [sentryTestSent, setSentryTestSent] = useState(false);
 
+  // Determinar si está en entorno de desarrollador / AI Studio o si fue activado explícitamente
+  const [isDevVisible, setIsDevVisible] = useState<boolean>(() => {
+    // 1. Entorno de desarrollo Vite / AI Studio en edición
+    if (import.meta.env.DEV) return true;
+
+    // 2. Previews de AI Studio en contenedores Cloud Run (*.run.app o localhost)
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      if (hostname.includes('run.app') || hostname === 'localhost' || hostname === '127.0.0.1') {
+        return true;
+      }
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('dev') === 'true' || params.get('debug') === 'true') {
+          return true;
+        }
+        if (localStorage.getItem('juditex_dev_mode') === 'true') {
+          return true;
+        }
+      } catch {
+        // Silenciar errores de acceso a storage/url
+      }
+    }
+    return false;
+  });
+
+  // Atajo de teclado para el programador (Ctrl+Shift+D o Cmd+Shift+D) para mostrar/ocultar incluso en producción
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
+        e.preventDefault();
+        setIsDevVisible(prev => {
+          const next = !prev;
+          try {
+            if (next) {
+              localStorage.setItem('juditex_dev_mode', 'true');
+            } else {
+              localStorage.removeItem('juditex_dev_mode');
+            }
+          } catch {
+            // ignore
+          }
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Compute live verification results whenever data changes or when manual re-audit is triggered
   const results: RuleCheckResult[] = useMemo(() => {
     return runInternalRulesVerification(data);
@@ -53,6 +104,11 @@ export default function DevRulesMonitor({ data = {} }: DevRulesMonitorProps) {
       setIsAuditing(false);
     }, 250);
   };
+
+  // Si no está en modo desarrollador (ej. dominio final de producción para clientes), no renderizar nada
+  if (!isDevVisible) {
+    return null;
+  }
 
   return (
     <>
