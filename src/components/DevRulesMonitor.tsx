@@ -260,14 +260,16 @@ export default function DevRulesMonitor({ data = {} }: DevRulesMonitorProps) {
                 </div>
 
                 <button
-                  onClick={() => {
+                  onClick={async () => {
                     try {
-                      Sentry.captureMessage('Prueba manual de Sentry desde Juditex WMS', 'info');
-                      Sentry.captureException(new Error('¡Prueba de error en Sentry - Juditex WMS!'));
+                      const eventId = Sentry.captureException(new Error(`Test Alerta Sentry - Error forzado en Juditex WMS [${new Date().toLocaleTimeString()}]`));
+                      console.log('Sentry Event ID generado:', eventId);
+                      await Sentry.flush(2000);
                       setSentryTestSent(true);
-                      setTimeout(() => setSentryTestSent(false), 4000);
+                      setTimeout(() => setSentryTestSent(false), 5000);
                     } catch (err) {
                       console.error('Error enviando evento a Sentry:', err);
+                      window.alert('Error enviando a Sentry. Revisa si un bloqueador de anuncios (AdBlock) lo está frenando.');
                     }
                   }}
                   className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/25 border border-purple-500/30 text-purple-700 dark:text-purple-300 rounded font-semibold text-[11px] flex items-center gap-1.5 transition cursor-pointer"
@@ -275,7 +277,7 @@ export default function DevRulesMonitor({ data = {} }: DevRulesMonitorProps) {
                   id="btn-test-sentry"
                 >
                   <Radio size={12} className={sentryTestSent ? "text-emerald-500 animate-pulse" : "text-purple-600 dark:text-purple-400"} />
-                  {sentryTestSent ? '¡Error enviado a Sentry!' : 'Probar Alerta Sentry'}
+                  {sentryTestSent ? '¡Error enviado! ID generado' : 'Probar Alerta Sentry'}
                 </button>
               </div>
 
