@@ -1348,7 +1348,6 @@ export default function CatalogManager({
                   <tr className="bg-app-bg/40 border-b border-app-border text-xs text-app-text/60 uppercase font-semibold">
                     <th className="p-3">Cliente / Razón Social</th>
                     <th className="p-3">DNI / RUC</th>
-                    <th className="p-3">Vendedor Habitual</th>
                     <th className="p-3">Contacto</th>
                     <th className="p-3">Dirección Fiscal</th>
                     <th className="p-3">Dirección de Despacho</th>
@@ -1371,7 +1370,7 @@ export default function CatalogManager({
                     );
                   }).length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="p-10 text-center">
+                      <td colSpan={6} className="p-10 text-center">
                         <div className="max-w-sm mx-auto flex flex-col items-center justify-center text-center">
                           <div className="w-14 h-14 rounded-full bg-app-bg border border-app-border flex items-center justify-center text-app-primary mb-3 shadow-xs">
                             {clients.length === 0 ? <Users size={28} /> : <Search size={28} className="text-app-text/40" />}
@@ -1425,18 +1424,6 @@ export default function CatalogManager({
                       <tr key={c.id} className="hover:bg-app-bg/40 border-b border-app-border/60 text-xs">
                         <td className="p-3 font-semibold text-app-text">{c.name}</td>
                         <td className="p-3 font-mono text-xs text-app-text/90">{c.dni}</td>
-                        <td className="p-3 text-xs">
-                          {c.defaultSellerId && sellers.some(s => s.id === c.defaultSellerId) ? (
-                            <span className="inline-flex items-center gap-1 font-semibold text-app-primary bg-app-primary/10 border border-app-primary/20 px-2 py-0.5 rounded text-[11px]">
-                              <User size={11} className="shrink-0" />
-                              {sellers.find(s => s.id === c.defaultSellerId)?.name}
-                            </span>
-                          ) : (
-                            <span className="text-app-text/40 text-[11px] italic">
-                              Auto (Por historial)
-                            </span>
-                          )}
-                        </td>
                         <td className="p-3 text-xs">
                           {c.contactPerson && <div className="text-app-primary font-bold">{c.contactPerson}</div>}
                           {c.phone && <div className="text-app-text/60 font-mono">{c.phone}</div>}

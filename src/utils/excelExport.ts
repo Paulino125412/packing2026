@@ -170,8 +170,8 @@ function autoFitColumns(worksheet: ExcelJS.Worksheet, minWidths: number[] = []) 
   worksheet.columns.forEach((col, idx) => {
     let maxLen = minWidths[idx] || 10;
     col.eachCell?.({ includeEmpty: false }, (cell) => {
-      // Ignore header title and metadata rows (1-10) so merged text doesn't distort column widths
-      if (Number(cell.row) <= 10) return;
+      // Ignore header title, metadata rows (1-10) and merged cells so merged text doesn't distort column widths
+      if (Number(cell.row) <= 10 || cell.isMerged) return;
       const valStr = cell.value ? String(cell.value) : '';
       if (valStr.length > maxLen && valStr.length < 80) {
         maxLen = valStr.length;
@@ -783,7 +783,7 @@ export async function exportSinglePackingListToExcel(
   } catch (e) {}
 
   const subCell = worksheet.getCell(3, titleStartCol);
-  subCell.value = `N° DOCUMENTO: ${pl.packingListNo}  |  FECHA: ${pl.date}  |  ESTADO: DESPACHADO`;
+  subCell.value = `N° DOCUMENTO: ${pl.packingListNo}  |  FECHA: ${pl.date}`;
   subCell.font = { name: 'Segoe UI', size: 9, bold: true, color: { argb: 'FF64748B' } };
   subCell.alignment = { vertical: 'middle', horizontal: 'left' };
 
@@ -886,72 +886,167 @@ export async function exportSinglePackingListToExcel(
   const startRow = 11;
   styleTableHeaders(worksheet, startRow, headers);
 
-  pl.items.forEach((item, index) => {
-    const rowNum = startRow + 1 + index;
-    const row = worksheet.getRow(rowNum);
-
-    const artObj = articles?.find(a => a.id === item.articleId);
-
-    const rowValues: any[] = [
-      index + 1,
-      artObj?.name || item.articleId || 'Desconocido'
-    ];
-
-    if (hasLote) rowValues.push(item.lot || '-');
-    if (hasPartida) rowValues.push(item.partida || '-');
-    if (hasTono) rowValues.push(item.tono || '-');
-    if (hasWidth) rowValues.push(item.width || '-');
-    if (hasWeight) rowValues.push(item.weight || '-');
-
-    rowValues.push(item.rollNumber, Number(item.meters.toFixed(2)));
-
-    row.values = rowValues;
-    styleDataRow(row, index % 2 === 1, alignments);
-
-    const metersColIdx = headers.length;
-    const metersCell = row.getCell(metersColIdx);
-    metersCell.numFmt = '#,##0.00 "m"';
-  });
-
-  // Totals Footer Row
-  const lastRow = startRow + pl.items.length;
-  const summaryRow = worksheet.getRow(lastRow + 1);
-  summaryRow.height = 24;
-
-  summaryRow.getCell(2).value = 'TOTAL DESPACHADO';
-  summaryRow.getCell(2).font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E293B' } };
-
-  if (hasWeight && totalWeight > 0) {
-    const weightColIdx = headers.indexOf('Peso') + 1;
-    if (weightColIdx > 0) {
-      const weightCell = summaryRow.getCell(weightColIdx);
-      weightCell.value = `${totalWeight.toFixed(2)} kg`;
-      weightCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E293B' } };
-      weightCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    }
+  // Group items by article to compute accurate per-article subtotals and summaries
+  interface ArticleGroup {
+    articleId: string;
+    articleName: string;
+    items: typeof pl.items;
+    totalMeters: number;
+    totalWeight: number;
+    rollsCount: number;
   }
 
-  const rollColIdx = headers.length - 1;
+  const articleGroupsMap = new Map<string, ArticleGroup>();
+  pl.items.forEach(item => {
+    const artObj = articles?.find(a => a.id === item.articleId);
+    const artName = artObj?.name || item.articleId || 'Tela / Artículo';
+    const key = item.articleId || artName;
+
+    if (!articleGroupsMap.has(key)) {
+      articleGroupsMap.set(key, {
+        articleId: item.articleId || '',
+        articleName: artName,
+        items: [],
+        totalMeters: 0,
+        totalWeight: 0,
+        rollsCount: 0
+      });
+    }
+
+    const group = articleGroupsMap.get(key)!;
+    group.items.push(item);
+    group.totalMeters += Number(item.meters || 0);
+    const rawW = (item.weight || '').toString().trim().replace(/,/g, '.').replace(/[^\d.-]/g, '');
+    const parsedW = parseFloat(rawW);
+    if (!isNaN(parsedW) && isFinite(parsedW) && parsedW > 0) {
+      group.totalWeight += parsedW;
+    }
+    group.rollsCount += 1;
+  });
+
+  const articleGroups = Array.from(articleGroupsMap.values());
+  const hasMultipleArticles = articleGroups.length > 1;
+
+  const weightColIdx = hasWeight ? headers.indexOf('Peso') + 1 : -1;
+  const rollColIdx = headers.indexOf('Rollo / Corte N°') + 1;
   const metersColIdx = headers.length;
+  const mergeEndCol = (hasWeight && weightColIdx > 0) ? weightColIdx - 1 : rollColIdx - 1;
 
-  const rollCell = summaryRow.getCell(rollColIdx);
-  rollCell.value = `${pl.items.length} rollos`;
-  rollCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E293B' } };
-  rollCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  let currentRow = startRow + 1;
+  let globalItemIndex = 1;
 
-  const metersCell = summaryRow.getCell(metersColIdx);
-  metersCell.value = Number(totalMeters.toFixed(2));
-  metersCell.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FF0F766E' } };
-  metersCell.numFmt = '#,##0.00 "m"';
-  metersCell.alignment = { horizontal: 'right', vertical: 'middle' };
+  articleGroups.forEach(group => {
+    // 1. Output items belonging to this article
+    group.items.forEach(item => {
+      const row = worksheet.getRow(currentRow);
+      row.height = 20;
 
-  summaryRow.eachCell({ includeEmpty: true }, (cell) => {
+      const rowValues: any[] = [
+        globalItemIndex,
+        group.articleName
+      ];
+
+      if (hasLote) rowValues.push(item.lot || '-');
+      if (hasPartida) rowValues.push(item.partida || '-');
+      if (hasTono) rowValues.push(item.tono || '-');
+      if (hasWidth) rowValues.push(item.width || '-');
+      if (hasWeight) rowValues.push(item.weight || '-');
+
+      rowValues.push(item.rollNumber, Number(item.meters.toFixed(2)));
+
+      row.values = rowValues;
+      styleDataRow(row, globalItemIndex % 2 === 1, alignments);
+
+      const metersCell = row.getCell(metersColIdx);
+      metersCell.numFmt = '#,##0.00 "m"';
+
+      currentRow++;
+      globalItemIndex++;
+    });
+
+    // 2. Subtotal row for this specific article (when multiple articles exist)
+    if (hasMultipleArticles) {
+      const subtotalRow = worksheet.getRow(currentRow);
+      subtotalRow.height = 22;
+
+      if (mergeEndCol > 2) {
+        try { worksheet.mergeCells(currentRow, 2, currentRow, mergeEndCol); } catch (e) {}
+      }
+
+      const labelCell = subtotalRow.getCell(2);
+      labelCell.value = `SUBTOTAL ${group.articleName}:`;
+      labelCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF0F766E' } };
+      labelCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+      if (hasWeight && weightColIdx > 0) {
+        const weightCell = subtotalRow.getCell(weightColIdx);
+        weightCell.value = group.totalWeight > 0 ? `${group.totalWeight.toFixed(2)} kg` : '-';
+        weightCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF0F766E' } };
+        weightCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      }
+
+      const rollCell = subtotalRow.getCell(rollColIdx);
+      rollCell.value = `${group.rollsCount} ${group.rollsCount === 1 ? 'rollo' : 'rollos'}`;
+      rollCell.font = { name: 'Segoe UI', size: 9.5, bold: true, color: { argb: 'FF0F766E' } };
+      rollCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      const metersCell = subtotalRow.getCell(metersColIdx);
+      metersCell.value = Number(group.totalMeters.toFixed(2));
+      metersCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF0F766E' } };
+      metersCell.numFmt = '#,##0.00 "m"';
+      metersCell.alignment = { horizontal: 'right', vertical: 'middle' };
+
+      for (let c = 1; c <= totalCols; c++) {
+        const cell = subtotalRow.getCell(c);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0FDFA' } };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF99F6E4' } },
+          bottom: { style: 'thin', color: { argb: 'FF99F6E4' } }
+        };
+      }
+
+      currentRow++;
+    }
+  });
+
+  // Totals Footer Row (Grand Total)
+  const summaryRow = worksheet.getRow(currentRow);
+  summaryRow.height = 24;
+
+  if (mergeEndCol > 2) {
+    try { worksheet.mergeCells(currentRow, 2, currentRow, mergeEndCol); } catch (e) {}
+  }
+
+  summaryRow.getCell(2).value = hasMultipleArticles ? 'TOTAL GENERAL DESPACHADO' : 'TOTAL DESPACHADO';
+  summaryRow.getCell(2).font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+  summaryRow.getCell(2).alignment = { horizontal: 'left', vertical: 'middle' };
+
+  if (hasWeight && totalWeight > 0 && weightColIdx > 0) {
+    const weightCell = summaryRow.getCell(weightColIdx);
+    weightCell.value = `${totalWeight.toFixed(2)} kg`;
+    weightCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+    weightCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  }
+
+  const grandRollCell = summaryRow.getCell(rollColIdx);
+  grandRollCell.value = `${pl.items.length} rollos`;
+  grandRollCell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+  grandRollCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+  const grandMetersCell = summaryRow.getCell(metersColIdx);
+  grandMetersCell.value = Number(totalMeters.toFixed(2));
+  grandMetersCell.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FF0F766E' } };
+  grandMetersCell.numFmt = '#,##0.00 "m"';
+  grandMetersCell.alignment = { horizontal: 'right', vertical: 'middle' };
+
+  for (let c = 1; c <= totalCols; c++) {
+    const cell = summaryRow.getCell(c);
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
     cell.border = {
       top: { style: 'medium', color: { argb: 'FF0F172A' } },
       bottom: { style: 'double', color: { argb: 'FF0F172A' } }
     };
-  });
+  }
 
   autoFitColumns(worksheet);
   await downloadWorkbook(workbook, `PackingList_${pl.packingListNo}_Juditex`);
