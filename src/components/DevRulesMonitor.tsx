@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import * as Sentry from '@sentry/react';
 import { 
   ShieldAlert, 
   ShieldCheck, 
@@ -10,7 +11,8 @@ import {
   ChevronRight,
   Terminal,
   Activity,
-  Check
+  Check,
+  Radio
 } from 'lucide-react';
 import { runInternalRulesVerification, RuleCheckResult, SystemDataPayload } from '../utils/rulesChecker';
 
@@ -23,6 +25,7 @@ export default function DevRulesMonitor({ data = {} }: DevRulesMonitorProps) {
   const [filter, setFilter] = useState<'all' | 'fail' | 'warn' | 'pass'>('all');
   const [auditTimestamp, setAuditTimestamp] = useState<number>(Date.now());
   const [isAuditing, setIsAuditing] = useState(false);
+  const [sentryTestSent, setSentryTestSent] = useState(false);
 
   // Compute live verification results whenever data changes or when manual re-audit is triggered
   const results: RuleCheckResult[] = useMemo(() => {
@@ -249,11 +252,33 @@ export default function DevRulesMonitor({ data = {} }: DevRulesMonitorProps) {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-3 sm:p-4 border-t border-app-border bg-app-bg/50 flex items-center justify-between text-xs text-app-text/60">
-              <div className="flex items-center gap-1.5 font-mono text-[10px]">
-                <Terminal size={12} />
-                <span>Auditoría reactiva en memoria</span>
+            <div className="p-3 sm:p-4 border-t border-app-border bg-app-bg/50 flex items-center justify-between text-xs text-app-text/60 gap-3 flex-wrap">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                  <Terminal size={12} />
+                  <span>Auditoría en memoria</span>
+                </div>
+
+                <button
+                  onClick={() => {
+                    try {
+                      Sentry.captureMessage('Prueba manual de Sentry desde Juditex WMS', 'info');
+                      Sentry.captureException(new Error('¡Prueba de error en Sentry - Juditex WMS!'));
+                      setSentryTestSent(true);
+                      setTimeout(() => setSentryTestSent(false), 4000);
+                    } catch (err) {
+                      console.error('Error enviando evento a Sentry:', err);
+                    }
+                  }}
+                  className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/25 border border-purple-500/30 text-purple-700 dark:text-purple-300 rounded font-semibold text-[11px] flex items-center gap-1.5 transition cursor-pointer"
+                  title="Envía una excepción y un mensaje de prueba al panel de Sentry"
+                  id="btn-test-sentry"
+                >
+                  <Radio size={12} className={sentryTestSent ? "text-emerald-500 animate-pulse" : "text-purple-600 dark:text-purple-400"} />
+                  {sentryTestSent ? '¡Error enviado a Sentry!' : 'Probar Alerta Sentry'}
+                </button>
               </div>
+
               <button
                 onClick={() => setIsOpen(false)}
                 className="px-4 py-1.5 bg-app-primary hover:bg-app-primary/90 text-white font-medium rounded-md text-xs transition cursor-pointer"
