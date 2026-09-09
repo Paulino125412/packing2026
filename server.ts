@@ -3,6 +3,8 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import puppeteer, { Browser } from "puppeteer";
+import puppeteerCore from "puppeteer-core";
+import chromium from "@sparticuz/chromium";
 
 const app = express();
 const PORT = 3000;
@@ -629,28 +631,37 @@ function findChromeExecutable(): string | undefined {
 }
 
 // Shared Puppeteer Browser instance for high performance PDF generation
-let browserInstance: Browser | null = null;
+let browserInstance: any = null;
 
 async function getBrowser(): Promise<Browser> {
   if (browserInstance && browserInstance.connected) {
     return browserInstance;
   }
   try {
-    const executablePath = findChromeExecutable();
-    const launchOptions: any = {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--font-render-hinting=none'
-      ]
-    };
-    if (executablePath) {
-      launchOptions.executablePath = executablePath;
+    if (process.env.NODE_ENV === "production") {
+      browserInstance = await puppeteerCore.launch({
+        args: chromium.args,
+        defaultViewport: (chromium as any).defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: (chromium as any).headless ?? true,
+      });
+    } else {
+      const executablePath = findChromeExecutable();
+      const launchOptions: any = {
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--font-render-hinting=none'
+        ]
+      };
+      if (executablePath) {
+        launchOptions.executablePath = executablePath;
+      }
+      browserInstance = await puppeteer.launch(launchOptions);
     }
-    browserInstance = await puppeteer.launch(launchOptions);
     browserInstance.on('disconnected', () => {
       browserInstance = null;
     });
