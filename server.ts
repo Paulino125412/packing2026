@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import puppeteer, { Browser } from "puppeteer";
 
@@ -7,6 +8,36 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json({ limit: '10mb' }));
+
+// Sentry Tunnel Route: Bypasses browser AdBlockers and Brave Shields
+app.post("/api/sentry-tunnel", express.raw({ type: "*/*", limit: "5mb" }), async (req, res) => {
+  try {
+    const envelope = req.body;
+    const envelopeString = envelope.toString("utf8");
+    const piece = envelopeString.split("\n")[0];
+    const header = JSON.parse(piece);
+    const dsn = new URL(header.dsn);
+    const projectId = dsn.pathname.replace("/", "");
+
+    if (!dsn.hostname.endsWith(".sentry.io")) {
+      return res.status(403).json({ error: "Invalid DSN host" });
+    }
+
+    const sentryUrl = `https://${dsn.hostname}/api/${projectId}/envelope/`;
+    const response = await fetch(sentryUrl, {
+      method: "POST",
+      body: envelope,
+      headers: {
+        "Content-Type": "application/x-sentry-envelope",
+      },
+    });
+
+    res.status(response.status).send(await response.text());
+  } catch (e: any) {
+    console.error("Error en Sentry Tunnel:", e);
+    res.status(500).json({ error: e?.message || "Tunnel error" });
+  }
+});
 
 // Standard health check route for container & proxy readiness
 app.get("/api/health", (req, res) => {
@@ -552,6 +583,51 @@ app.get("/api/sunat/:number", async (req, res) => {
   });
 });
 
+// Helper to find Chrome executable in container environment or local cache
+function findChromeExecutable(): string | undefined {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+
+  // Common paths in container or Linux systems
+  const candidatePaths = [
+    '/tmp/puppeteer-chrome/linux-155.0.8043.0/chrome-linux64/chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium'
+  ];
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  // Search inside local chrome directory if downloaded by puppeteer browsers
+  const localChromeDir = path.join(process.cwd(), 'chrome');
+  if (fs.existsSync(localChromeDir)) {
+    const findBinary = (dir: string): string | null => {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            const found = findBinary(fullPath);
+            if (found) return found;
+          } else if (entry.isFile() && (entry.name === 'chrome' || entry.name === 'chromium') && !entry.name.endsWith('.so')) {
+            return fullPath;
+          }
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    };
+    const found = findBinary(localChromeDir);
+    if (found) return found;
+  }
+
+  return undefined;
+}
+
 // Shared Puppeteer Browser instance for high performance PDF generation
 let browserInstance: Browser | null = null;
 
@@ -560,7 +636,8 @@ async function getBrowser(): Promise<Browser> {
     return browserInstance;
   }
   try {
-    browserInstance = await puppeteer.launch({
+    const executablePath = findChromeExecutable();
+    const launchOptions: any = {
       headless: true,
       args: [
         '--no-sandbox',
@@ -569,7 +646,11 @@ async function getBrowser(): Promise<Browser> {
         '--disable-gpu',
         '--font-render-hinting=none'
       ]
-    });
+    };
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+    }
+    browserInstance = await puppeteer.launch(launchOptions);
     browserInstance.on('disconnected', () => {
       browserInstance = null;
     });

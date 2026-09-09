@@ -1,5 +1,7 @@
 node_modules/
+dist/
 build/
+chrome/
 coverage/
 .DS_Store
 *.log
