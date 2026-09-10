@@ -1,10 +1,30 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { createServer as createViteServer } from "vite";
 import puppeteer, { Browser } from "puppeteer";
 import puppeteerCore from "puppeteer-core";
-import chromium from "@sparticuz/chromium";
+import * as chromiumModule from "@sparticuz/chromium";
+
+// Defensive resolver to unwrap @sparticuz/chromium regardless of bundler/ESM/CJS wrapping
+function resolveChromium(mod: any): any {
+  let curr = mod;
+  for (let i = 0; i < 5; i++) {
+    if (!curr) break;
+    if (typeof curr.executablePath === 'function') {
+      return curr;
+    }
+    if (curr.default) {
+      curr = curr.default;
+    } else {
+      break;
+    }
+  }
+  return curr;
+}
+
+const chromium: any = resolveChromium(chromiumModule);
 
 const app = express();
 const PORT = 3000;
@@ -630,24 +650,97 @@ function findChromeExecutable(): string | undefined {
   return undefined;
 }
 
-// Shared Puppeteer Browser instance for high performance PDF generation
-let browserInstance: any = null;
+// Ensures native shared libraries packaged with @sparticuz/chromium (e.g. libnspr4.so, libnss3.so)
+// are extracted and accessible in serverless/container production environments like Cloud Run
+async function ensureChromiumLibraries(): Promise<string> {
+  const al2023LibDir = path.join(os.tmpdir(), "al2023", "lib");
+  const nsprPath = path.join(al2023LibDir, "libnspr4.so");
 
-async function getBrowser(): Promise<Browser> {
-  if (browserInstance && browserInstance.connected) {
-    return browserInstance;
+  if (!fs.existsSync(nsprPath)) {
+    const al2023Dir = path.join(os.tmpdir(), "al2023");
+    if (fs.existsSync(al2023Dir)) {
+      try {
+        fs.rmSync(al2023Dir, { recursive: true, force: true });
+      } catch {}
+    }
+
+    const archiveCandidates = [
+      path.join(process.cwd(), "node_modules/@sparticuz/chromium/bin/al2023.tar.br"),
+      path.resolve(__dirname, "node_modules/@sparticuz/chromium/bin/al2023.tar.br"),
+    ];
+    try {
+      const pkgPath = require.resolve("@sparticuz/chromium/package.json");
+      archiveCandidates.unshift(path.join(path.dirname(pkgPath), "bin/al2023.tar.br"));
+    } catch {}
+
+    for (const archivePath of archiveCandidates) {
+      if (fs.existsSync(archivePath)) {
+        const inflateFn = (chromiumModule as any).inflate || (chromium as any).inflate;
+        if (typeof inflateFn === "function") {
+          try {
+            await inflateFn(archivePath);
+            break;
+          } catch (e) {
+            console.warn("Failed inflating al2023 archive from", archivePath, e);
+          }
+        }
+      }
+    }
   }
-  try {
-    if (process.env.NODE_ENV === "production") {
-      browserInstance = await puppeteerCore.launch({
-        args: chromium.args,
-        defaultViewport: (chromium as any).defaultViewport,
-        executablePath: await chromium.executablePath(),
-        headless: (chromium as any).headless ?? true,
+
+  const setupFn = (chromiumModule as any).setupLambdaEnvironment || (chromium as any).setupLambdaEnvironment;
+  if (typeof setupFn === "function") {
+    try {
+      setupFn(al2023LibDir);
+    } catch {}
+  } else {
+    process.env["FONTCONFIG_PATH"] = process.env["FONTCONFIG_PATH"] || path.join(os.tmpdir(), "fonts");
+    process.env["HOME"] = process.env["HOME"] || os.tmpdir();
+    const curLd = process.env["LD_LIBRARY_PATH"] || "";
+    if (!curLd.includes(al2023LibDir)) {
+      process.env["LD_LIBRARY_PATH"] = curLd ? `${al2023LibDir}:${curLd}` : al2023LibDir;
+    }
+  }
+
+  return al2023LibDir;
+}
+
+// Spawns a dedicated, isolated browser instance per PDF job to avoid frame detachment
+// and zombie socket issues caused by container CPU pausing in serverless Cloud Run
+async function createBrowserInstance(): Promise<any> {
+  if (process.env.NODE_ENV === "production") {
+    try {
+      const activeChromium = resolveChromium(chromium);
+      const al2023LibDir = await ensureChromiumLibraries();
+      const execPath = await activeChromium.executablePath();
+      const ldPath = process.env.LD_LIBRARY_PATH || al2023LibDir;
+
+      // Filter out --single-process to prevent renderer crash from destroying the whole browser session
+      const baseArgs = (activeChromium.args || []).filter((a: string) => a !== '--single-process');
+      const prodArgs = Array.from(new Set([
+        ...baseArgs,
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--font-render-hinting=none',
+      ]));
+
+      return await puppeteerCore.launch({
+        args: prodArgs,
+        defaultViewport: activeChromium.defaultViewport,
+        executablePath: execPath,
+        headless: activeChromium.headless,
+        env: {
+          ...process.env,
+          LD_LIBRARY_PATH: ldPath,
+        },
       });
-    } else {
+    } catch (prodLaunchErr) {
+      console.warn('Production puppeteer-core launch failed, trying standard puppeteer fallback:', prodLaunchErr);
       const executablePath = findChromeExecutable();
-      const launchOptions: any = {
+      const fallbackOptions: any = {
         headless: true,
         args: [
           '--no-sandbox',
@@ -658,17 +751,54 @@ async function getBrowser(): Promise<Browser> {
         ]
       };
       if (executablePath) {
-        launchOptions.executablePath = executablePath;
+        fallbackOptions.executablePath = executablePath;
       }
-      browserInstance = await puppeteer.launch(launchOptions);
+      return await puppeteer.launch(fallbackOptions);
     }
-    browserInstance.on('disconnected', () => {
-      browserInstance = null;
+  } else {
+    const executablePath = findChromeExecutable();
+    const launchOptions: any = {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--font-render-hinting=none'
+      ]
+    };
+    if (executablePath) {
+      launchOptions.executablePath = executablePath;
+    }
+    return await puppeteer.launch(launchOptions);
+  }
+}
+
+async function renderPdf(fullHtml: string): Promise<Buffer> {
+  const browser = await createBrowserInstance();
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 900, height: 1400 });
+
+    // Use domcontentloaded for fast, reliable injection without frame detachment
+    await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 20000 });
+
+    // Short pause for CSS rendering without evaluating inside frame context
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    const pdfBuffer = await page.pdf({
+      printBackground: true,
+      preferCSSPageSize: true,
+      timeout: 20000
     });
-    return browserInstance;
-  } catch (err) {
-    browserInstance = null;
-    throw err;
+
+    return Buffer.from(pdfBuffer);
+  } finally {
+    try {
+      await browser.close();
+    } catch (closeErr) {
+      console.warn("Error closing browser instance:", closeErr);
+    }
   }
 }
 
@@ -684,13 +814,7 @@ app.post("/api/generate-pdf", async (req, res) => {
     return res.status(400).json({ error: 'CSS inválido o demasiado grande' });
   }
 
-  let page = null;
-  try {
-    const browser = await getBrowser();
-    page = await browser.newPage();
-    await page.setViewport({ width: 900, height: 1400 });
-
-    const fullHtml = `<!DOCTYPE html>
+  const fullHtml = `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
@@ -712,40 +836,33 @@ app.post("/api/generate-pdf", async (req, res) => {
 </body>
 </html>`;
 
-    await page.setContent(fullHtml, { waitUntil: 'networkidle0', timeout: 20000 });
-    await page.emulateMediaType('print');
-
-    const pdfBuffer = await page.pdf({
-      printBackground: true,
-      preferCSSPageSize: true,
-      timeout: 20000
-    });
-
-    res.set({
-      'Content-Type': 'application/pdf',
-      'Content-Length': pdfBuffer.length.toString(),
-      'Content-Disposition': 'attachment; filename="document.pdf"'
-    });
-
-    return res.send(Buffer.from(pdfBuffer));
-  } catch (error: any) {
-    console.error("Puppeteer PDF generation error:", error);
-    const isTimeout = error?.name === 'TimeoutError' || /timeout/i.test(error?.message || '');
-    return res.status(isTimeout ? 504 : 500).json({
-      error: isTimeout
-        ? "La generación del PDF tardó demasiado y se canceló. Intente nuevamente."
-        : "Error al generar el PDF en el servidor",
-      details: error?.message || String(error)
-    });
-  } finally {
-    if (page) {
-      try {
-        await page.close();
-      } catch (e) {
-        console.warn("Error closing page:", e);
+  let lastError: any = null;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const pdfBuffer = await renderPdf(fullHtml);
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Length': pdfBuffer.length.toString(),
+        'Content-Disposition': 'attachment; filename="document.pdf"'
+      });
+      return res.send(pdfBuffer);
+    } catch (error: any) {
+      lastError = error;
+      console.warn(`PDF generation attempt ${attempt} failed:`, error?.message || error);
+      if (attempt === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
       }
     }
   }
+
+  console.error("Puppeteer PDF generation error:", lastError);
+  const isTimeout = lastError?.name === 'TimeoutError' || /timeout/i.test(lastError?.message || '');
+  return res.status(isTimeout ? 504 : 500).json({
+    error: isTimeout
+      ? "La generación del PDF tardó demasiado y se canceló. Intente nuevamente."
+      : "Error al generar el PDF en el servidor",
+    details: lastError?.message || String(lastError)
+  });
 });
 
 // Vite middleware for development mode

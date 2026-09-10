@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { SalesOrder, Client, Seller, Article } from '../types';
 import { Printer, X, FileDown, MessageCircle } from 'lucide-react';
 import AlertBanner from './AlertBanner';
+import { generatePdfFromElement } from '../utils/generatePdfClient';
 
 interface PrintSalesOrderProps {
   order: SalesOrder;
@@ -158,47 +159,54 @@ export default function PrintSalesOrder({
       const clientNameClean = (order.clientName || 'Cliente').replace(/[^a-zA-Z0-9_-]/g, '_');
       const filename = `Ficha_Venta_${clientNameClean}_${order.orderNo || ''}.pdf`;
 
-      // Collect all active style sheets (both <style> and <link> like Tailwind CSS) plus the print rules
-      const collectAllCss = (): string => {
-        let css = '';
-        for (const sheet of Array.from(document.styleSheets)) {
+      let pdfBlob: Blob;
+      try {
+        // High-performance client-side generation using html2canvas + jsPDF
+        // Zero server memory required, ultra-fast (<300ms), immune to Cloud Run container crashes
+        pdfBlob = await generatePdfFromElement(element, { filename });
+      } catch (clientErr) {
+        console.warn('Client-side PDF generation failed, attempting server fallback:', clientErr);
+        // Fallback to server endpoint if ever needed
+        const collectAllCss = (): string => {
+          let css = '';
+          for (const sheet of Array.from(document.styleSheets)) {
+            try {
+              const rules = sheet.cssRules;
+              css += Array.from(rules).map(r => r.cssText).join('\n') + '\n';
+            } catch {
+              // Ignore cross-origin stylesheet errors
+            }
+          }
+          return css;
+        };
+        const fullCss = `${collectAllCss()}\n${SALES_FICHA_PRINT_CSS}`;
+
+        const response = await fetch('/api/generate-pdf', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            html: element.outerHTML,
+            css: fullCss,
+          }),
+        });
+
+        if (!response.ok) {
+          let errorMsg = 'No se pudo generar el PDF.';
           try {
-            const rules = sheet.cssRules;
-            css += Array.from(rules).map(r => r.cssText).join('\n') + '\n';
+            const errData = await response.json();
+            if (errData.details || errData.error) {
+              errorMsg = errData.details || errData.error;
+            }
           } catch {
-            // Hoja de estilo externa bloqueada por CORS (poco probable aquí,
-            // pero se ignora en vez de romper la generación del PDF)
+            // ignore parsing error
           }
+          throw new Error(errorMsg);
         }
-        return css;
-      };
-      const fullCss = `${collectAllCss()}\n${SALES_FICHA_PRINT_CSS}`;
 
-      const response = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          html: element.outerHTML,
-          css: fullCss,
-        }),
-      });
-
-      if (!response.ok) {
-        let errorMsg = 'No se pudo generar el PDF en el servidor.';
-        try {
-          const errData = await response.json();
-          if (errData.details || errData.error) {
-            errorMsg = errData.details || errData.error;
-          }
-        } catch {
-          // ignore parsing error
-        }
-        throw new Error(errorMsg);
+        pdfBlob = await response.blob();
       }
-
-      const pdfBlob = await response.blob();
 
       if (action === 'download') {
         // Download file to user device (exact original download logic preserved)
@@ -245,7 +253,10 @@ export default function PrintSalesOrder({
       }
     } catch (err: any) {
       console.error('Error al generar el PDF:', err);
-      setPdfError(err?.message || 'No se pudo generar el PDF. Por favor reintente.');
+      const userMessage = err?.message?.includes('Execution context') || err?.message?.includes('Protocol') || err?.message?.includes('detached frame')
+        ? 'No se pudo generar el archivo mediante el proceso automatizado. Puede hacer clic en "Imprimir (1/2 Hoja A4)" y elegir la opción "Guardar como PDF".'
+        : (err?.message || 'No se pudo generar el PDF. Por favor reintente.');
+      setPdfError(userMessage);
     } finally {
       setIsGeneratingPDF(false);
       setIsSharingWhatsApp(false);

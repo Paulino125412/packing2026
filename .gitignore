@@ -8,6 +8,10 @@ coverage/
 .env*
 !.env.example
 
+# Lockfiles
+bun.lock
+bun.lockb
+
 # Playwright
 /test-results/
 /playwright-report/
