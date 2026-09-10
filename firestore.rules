@@ -159,6 +159,8 @@ service cloud.firestore {
         && incoming(request).items.size() <= 500
         && (incoming(request).totalAmount is int || incoming(request).totalAmount is float || incoming(request).totalAmount is number)
         && incoming(request).totalAmount >= 0
+        && (!('billedAmount' in incoming(request)) || (incoming(request).billedAmount is int || incoming(request).billedAmount is float || incoming(request).billedAmount is number))
+        && (!('pendingAmount' in incoming(request)) || (incoming(request).pendingAmount is int || incoming(request).pendingAmount is float || incoming(request).pendingAmount is number))
         && (!('sellerName' in incoming(request)) || (incoming(request).sellerName is string && incoming(request).sellerName.size() <= 200))
         && (!('sellerId' in incoming(request)) || (incoming(request).sellerId is string && incoming(request).sellerId.size() <= 128))
         && (!('clientId' in incoming(request)) || (incoming(request).clientId is string && incoming(request).clientId.size() <= 128))

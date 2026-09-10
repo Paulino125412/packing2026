@@ -14,7 +14,10 @@ export default defineConfig(() => {
         injectRegister: 'auto',
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest,woff,woff2,ttf}'],
-          maximumFileSizeToCacheInBytes: 8 * 1024 * 1024
+          maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
+          cleanupOutdatedCaches: true,
+          skipWaiting: true,
+          clientsClaim: true,
         },
         manifest: {
           name: 'BUSINESS SUITE',
