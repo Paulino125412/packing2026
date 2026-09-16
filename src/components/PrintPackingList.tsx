@@ -1221,9 +1221,6 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
           <div ref={measureFooterBlockRef} className="pt-1">
             <div className={`flex flex-col items-end justify-end ${isCompact ? 'mt-1 text-[10.5px]' : 'mt-2 text-xs'} font-bold space-y-0.5`}>
               <p className="uppercase tracking-tight">TOTAL ROLLOS: <span className={`font-mono font-black ${isCompact ? 'text-xs' : 'text-sm'}`}>{totalRolls}</span></p>
-              {totalWeight > 0 && (
-                <p className="uppercase tracking-tight">TOTAL PESO: <span className={`font-mono font-black ${isCompact ? 'text-xs' : 'text-sm'}`}>{totalWeight.toFixed(2)} kg</span></p>
-              )}
               <p className="uppercase tracking-tight font-display">TOTAL METROS: <span className={`font-mono font-black ${isCompact ? 'text-sm' : 'text-md'}`}>{totalMeters.toFixed(2)} m</span></p>
             </div>
             <div className={`${isCompact ? 'mt-2 p-2' : 'mt-4 p-2.5'} border border-app-border rounded-lg`}>
@@ -1421,9 +1418,6 @@ function PaginatedSinglePrintPage({
           {isLastPage && (
             <div className={`flex flex-col items-end justify-end ${totalRolls > 28 ? 'mt-1.5 text-[11px]' : 'mt-2.5 text-xs'} font-bold space-y-0.5`}>
               <p className="uppercase tracking-tight">TOTAL ROLLOS: <span className="font-mono font-black text-sm text-app-secondary">{totalRolls}</span></p>
-              {totalWeight > 0 && (
-                <p className="uppercase tracking-tight">TOTAL PESO: <span className="font-mono font-black text-sm text-app-text">{totalWeight.toFixed(2)} kg</span></p>
-              )}
               <p className="uppercase tracking-tight font-display text-app-primary">TOTAL METROS: <span className="font-mono font-black text-base">{totalMeters.toFixed(2)} m</span></p>
             </div>
           )}
@@ -1594,9 +1588,6 @@ function CortePrintSheet({
           <div className="border-t border-app-border pt-1.5 mt-2 text-[10px] font-black uppercase">
             <div className="flex justify-between items-center px-2">
               <p className="font-display text-app-primary">TOTAL METROS: <span className="font-mono text-xs">{totalMeters.toFixed(2)} m</span></p>
-              {totalWeight > 0 && (
-                <p className="font-display text-app-text">TOTAL PESO: <span className="font-mono text-xs">{totalWeight.toFixed(2)} kg</span></p>
-              )}
               <p className="font-display text-app-secondary">CANTIDAD DE ROLLOS: <span className="font-mono text-xs">{totalRolls}</span></p>
             </div>
           </div>
@@ -1712,9 +1703,6 @@ function CortePrintSheet({
           <div className="border-t border-app-border pt-1.5 text-[10px] font-black uppercase">
             <div className="flex justify-between items-center px-2">
               <p className="font-display text-app-primary">TOTAL METROS: <span className="font-mono text-xs">{totalMeters.toFixed(2)} m</span></p>
-              {totalWeight > 0 && (
-                <p className="font-display text-app-text">TOTAL PESO: <span className="font-mono text-xs">{totalWeight.toFixed(2)} kg</span></p>
-              )}
               <p className="font-display text-app-secondary">CANTIDAD DE ROLLOS: <span className="font-mono text-xs">{totalRolls}</span></p>
             </div>
           </div>

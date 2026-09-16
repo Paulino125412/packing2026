@@ -12,6 +12,7 @@ import AlertBanner from './AlertBanner';
 import PrintRestingGuideModal from './PrintRestingGuideModal';
 import { useToast } from '../context/ToastContext';
 import { analyzeSystemError } from '../lib/diagnostics';
+import { isSanJacintoProvider, normalizeSanJacintoTono, isValidSanJacintoTono } from '../utils/sanJacintoRules';
 
 interface PackingListFormProps {
   clients: Client[];
@@ -338,6 +339,9 @@ export default function PackingListForm({
 
         const groupKey = resolvedArticleId ? `art-${resolvedArticleId}` : `group-${itemIdx}`;
 
+        const isSanJacinto = isSanJacintoProvider(providerObj || resolvedProviderId);
+        const itemTono = isSanJacinto ? normalizeSanJacintoTono(item.tono) : (item.tono || '');
+
         if (!groupsMap[groupKey]) {
           groupsMap[groupKey] = {
             id: `group-prefill-${resolvedProviderId}-${resolvedArticleId || itemIdx}`,
@@ -345,7 +349,7 @@ export default function PackingListForm({
             articleId: resolvedArticleId,
             lot: item.lot || '',
             partida: item.partida || '',
-            tono: item.tono || '',
+            tono: itemTono,
             source: item.rollId ? 'inventory' : 'custom',
             rolls: [],
             hasProcessedExcel: false
@@ -367,7 +371,7 @@ export default function PackingListForm({
           maxMeters,
           lot: item.lot || '',
           partida: item.partida || '',
-          tono: item.tono || '',
+          tono: itemTono,
           width: item.width || '',
           weight: item.weight || ''
         });
@@ -594,6 +598,7 @@ export default function PackingListForm({
       const activeProvId = formProviderId || '';
       const matchingArticles = articles.filter(a => a.providerId === activeProvId);
       const defaultArticleId = matchingArticles.length === 1 ? matchingArticles[0].id : '';
+      const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === activeProvId));
 
       const newGroup: FormArticleGroup = {
         id: `group-${Date.now()}-${Math.random()}`,
@@ -601,7 +606,7 @@ export default function PackingListForm({
         articleId: defaultArticleId,
         lot: '',
         partida: '',
-        tono: '',
+        tono: isSanJacinto ? '-' : '',
         source: 'custom',
         rolls: []
       };
@@ -613,6 +618,7 @@ export default function PackingListForm({
     const activeProvId = formProviderId || '';
     const matchingArticles = articles.filter(a => a.providerId === activeProvId);
     const defaultArticleId = matchingArticles.length === 1 ? matchingArticles[0].id : '';
+    const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === activeProvId));
 
     const newGroup: FormArticleGroup = {
       id: `group-${Date.now()}-${Math.random()}`,
@@ -620,7 +626,7 @@ export default function PackingListForm({
       articleId: defaultArticleId,
       lot: '',
       partida: '',
-      tono: '',
+      tono: isSanJacinto ? '-' : '',
       source: 'custom',
       rolls: []
     };
@@ -681,6 +687,9 @@ export default function PackingListForm({
           }
         }
 
+        const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === g.providerId));
+        const rollTono = isSanJacinto ? normalizeSanJacintoTono(g.tono || '-') : (g.tono || '');
+
         return {
           ...g,
           rolls: [
@@ -691,7 +700,7 @@ export default function PackingListForm({
               meters: packingType === 'corte' ? '' : (packingType === 'nuevo' ? 50 : 0),
               lot: g.lot || '',
               partida: g.partida || '',
-              tono: g.tono || '',
+              tono: rollTono,
               width: '',
               weight: ''
             }
@@ -799,6 +808,8 @@ export default function PackingListForm({
 
     const parsedRows: ParsedRow[] = [];
 
+    const isSanJacinto = isSanJacintoProvider(pConfig);
+
     for (let i = startLineIndex; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
@@ -810,7 +821,7 @@ export default function PackingListForm({
       let rowRollNum = '';
       let rowLot = '';
       let rowPartida = '';
-      let rowTono = '';
+      let rowTono = isSanJacinto ? (group?.tono ? normalizeSanJacintoTono(group.tono) : '-') : '';
       let rowWidth = '';
       let rowWeight = '';
 
@@ -819,7 +830,10 @@ export default function PackingListForm({
         if (rollColIdx !== -1 && cols[rollColIdx]) rowRollNum = cols[rollColIdx].trim();
         if (lotColIdx !== -1 && cols[lotColIdx]) rowLot = cols[lotColIdx].trim();
         if (partidaColIdx !== -1 && cols[partidaColIdx]) rowPartida = cols[partidaColIdx].trim();
-        if (tonoColIdx !== -1 && cols[tonoColIdx]) rowTono = cols[tonoColIdx].trim();
+        if (tonoColIdx !== -1 && cols[tonoColIdx] !== undefined) {
+          const rawT = cols[tonoColIdx].trim();
+          rowTono = isSanJacinto ? normalizeSanJacintoTono(rawT) : rawT;
+        }
         if (widthColIdx !== -1 && cols[widthColIdx]) {
           const parsedW = parseSanitizedNumeric(cols[widthColIdx]);
           rowWidth = parsedW !== null ? String(parsedW) : cols[widthColIdx].replace(/m|mts|mt|cm/i, '').trim();
@@ -836,7 +850,7 @@ export default function PackingListForm({
           meters: Number(rowMeters.toFixed(2)),
           lot: rowLot || undefined,
           partida: rowPartida || undefined,
-          tono: rowTono || undefined,
+          tono: rowTono || (isSanJacinto ? '-' : undefined),
           width: rowWidth || undefined,
           weight: rowWeight || undefined
         });
@@ -862,7 +876,9 @@ export default function PackingListForm({
         parsedRows.forEach(row => {
           if (row.lot && pConfig?.hasLot) lotUpdated = row.lot;
           if (row.partida && pConfig?.hasPartida) partidaUpdated = row.partida;
-          if (row.tono && pConfig?.hasTono) tonoUpdated = row.tono;
+          if (row.tono && (pConfig?.hasTono || isSanJacinto)) {
+            tonoUpdated = isSanJacinto ? normalizeSanJacintoTono(row.tono) : row.tono;
+          }
 
           let finalRollNum = row.rollNumber;
           if (!finalRollNum) {
@@ -878,13 +894,17 @@ export default function PackingListForm({
             }
           }
 
+          const finalRollTono = isSanJacinto
+            ? normalizeSanJacintoTono(row.tono || g.tono || '-')
+            : (row.tono || g.tono || '');
+
           newRolls.push({
             id: `roll-${Date.now()}-${Math.random()}-${rollsCount}`,
             rollNumber: finalRollNum,
             meters: row.meters,
             lot: row.lot || g.lot || '',
             partida: row.partida || g.partida || '',
-            tono: row.tono || g.tono || '',
+            tono: finalRollTono,
             width: row.width || '',
             weight: row.weight || ''
           });
@@ -895,7 +915,9 @@ export default function PackingListForm({
           ...g,
           lot: isExcelOrBulk ? '' : g.lot,
           partida: isExcelOrBulk ? '' : g.partida,
-          tono: isExcelOrBulk ? '' : g.tono,
+          tono: isExcelOrBulk
+            ? (isSanJacinto ? (tonoUpdated ? normalizeSanJacintoTono(tonoUpdated) : '-') : '')
+            : (isSanJacinto ? normalizeSanJacintoTono(g.tono || '-') : g.tono),
           hasProcessedExcel: isExcelOrBulk ? true : g.hasProcessedExcel,
           rolls: newRolls
         };
@@ -910,13 +932,14 @@ export default function PackingListForm({
         if (field === 'providerId') {
           const matchingArticles = articles.filter(a => a.providerId === value);
           const nextArticleId = matchingArticles[0]?.id || '';
+          const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === value));
           return {
             ...g,
             providerId: value,
             articleId: nextArticleId,
             lot: '',
             partida: '',
-            tono: '',
+            tono: isSanJacinto ? '-' : '',
             hasProcessedExcel: false,
             rolls: []
           };
@@ -938,6 +961,20 @@ export default function PackingListForm({
             rolls: []
           };
         }
+        if (field === 'tono') {
+          const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === g.providerId));
+          const uppercaseVal = typeof value === 'string' ? value.toUpperCase() : value;
+          return {
+            ...g,
+            tono: uppercaseVal,
+            rolls: isSanJacinto
+              ? g.rolls.map(r => ({
+                  ...r,
+                  tono: (!r.tono || r.tono === '-' || r.tono === g.tono) ? uppercaseVal : r.tono
+                }))
+              : g.rolls
+          };
+        }
         
         // Master inputs lot, partida, and tono are updated here and will only be applied to newly created rolls.
         return { ...g, [field]: value };
@@ -949,6 +986,7 @@ export default function PackingListForm({
   const handleRollFieldChange = (groupId: string, rollId: string, field: keyof FormRollEntry, value: any) => {
     setArticleGroups(prev => prev.map(g => {
       if (g.id === groupId) {
+        const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === g.providerId));
         return {
           ...g,
           rolls: g.rolls.map(r => {
@@ -961,11 +999,16 @@ export default function PackingListForm({
                     rollId: warehouseRoll.id,
                     rollNumber: warehouseRoll.rollNumber,
                     meters: warehouseRoll.currentMeters,
-                    maxMeters: warehouseRoll.currentMeters
+                    maxMeters: warehouseRoll.currentMeters,
+                    tono: isSanJacinto ? normalizeSanJacintoTono(warehouseRoll.tono || r.tono) : (warehouseRoll.tono || r.tono)
                   };
                 }
               }
-              return { ...r, [field]: value };
+              let finalVal = value;
+              if (field === 'tono') {
+                finalVal = typeof value === 'string' ? value.toUpperCase() : value;
+              }
+              return { ...r, [field]: finalVal };
             }
             return r;
           })
@@ -976,7 +1019,14 @@ export default function PackingListForm({
   };
 
   const getProviderConfig = (providerId: string) => {
-    return providers.find(p => p.id === providerId) || null;
+    const prov = providers.find(p => p.id === providerId) || null;
+    if (prov && isSanJacintoProvider(prov)) {
+      return {
+        ...prov,
+        hasTono: true
+      };
+    }
+    return prov;
   };
 
   // Submit and Save
@@ -1050,6 +1100,17 @@ export default function PackingListForm({
       }
 
       const config = getProviderConfig(g.providerId);
+      const isSanJacinto = isSanJacintoProvider(config || g.providerId);
+
+      // Pre-sanitize rolls for San Jacinto: if tone is missing/empty, default to '-'
+      if (isSanJacinto) {
+        g.rolls.forEach(r => {
+          r.tono = normalizeSanJacintoTono(r.tono || g.tono);
+        });
+        if (!g.tono || !isValidSanJacintoTono(g.tono)) {
+          g.tono = '-';
+        }
+      }
       
       // Check dynamic attributes required by provider (lot, partida, tono, width, weight)
       if ((packingType === 'nuevo' || packingType === 'rollo') && config) {
@@ -1059,7 +1120,7 @@ export default function PackingListForm({
         if (config.hasPartida && g.rolls.some(r => !r.partida?.trim() && !g.partida?.trim())) {
           missingFieldsSet.add('partida');
         }
-        if (config.hasTono && g.rolls.some(r => !r.tono?.trim() && !g.tono?.trim())) {
+        if (config.hasTono && !isSanJacinto && g.rolls.some(r => !r.tono?.trim() && !g.tono?.trim())) {
           missingFieldsSet.add('tono');
         }
         if (config.hasWidth && g.rolls.some(r => !r.width?.trim())) {
@@ -1226,7 +1287,12 @@ export default function PackingListForm({
       // Build flattened items array for database storage
       const finalItems: PackingListItem[] = [];
       articleGroups.forEach(g => {
+        const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === g.providerId));
         g.rolls.forEach(r => {
+          const itemTono = isSanJacinto
+            ? normalizeSanJacintoTono(r.tono || g.tono || '-')
+            : (r.tono || g.tono || '');
+
           const item: PackingListItem = {
             id: `pli-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
             rollNumber: r.rollNumber || `ROLLO-DIRECT-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -1235,7 +1301,7 @@ export default function PackingListForm({
             meters: Number(r.meters) || 0,
             lot: r.lot || g.lot || '',
             partida: r.partida || g.partida || '',
-            tono: r.tono || g.tono || '',
+            tono: itemTono,
             width: r.width || '',
             weight: r.weight || ''
           };

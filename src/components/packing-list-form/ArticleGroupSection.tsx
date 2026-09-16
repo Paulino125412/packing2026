@@ -6,6 +6,7 @@ import { FormArticleGroup, FormRollEntry } from './types';
 import ExcelPasteParser from './ExcelPasteParser';
 import SearchableCombobox from '../SearchableCombobox';
 import BarcodeScannerModal from '../BarcodeScannerModal';
+import { isSanJacintoProvider } from '../../utils/sanJacintoRules';
 
 interface ArticleGroupSectionProps {
   key?: React.Key;
@@ -94,9 +95,10 @@ export default function ArticleGroupSection({
     });
   }
 
+  const isSanJacinto = isSanJacintoProvider(pConfig);
   const showLot = Boolean((pConfig?.hasLot) || group.rolls.some(r => !!r.lot) || group.source === 'custom');
   const showPartida = Boolean((pConfig?.hasPartida) || group.rolls.some(r => !!r.partida) || group.source === 'custom');
-  const showTono = Boolean((pConfig?.hasTono) || group.rolls.some(r => !!r.tono) || group.source === 'custom');
+  const showTono = Boolean(isSanJacinto || (pConfig?.hasTono) || group.rolls.some(r => !!r.tono) || group.source === 'custom');
   const showWidth = Boolean((pConfig?.hasWidth) || group.rolls.some(r => !!r.width) || group.source === 'custom');
   const showWeight = Boolean((pConfig?.hasWeight) || group.rolls.some(r => !!r.weight) || group.source === 'custom');
   const showExtraRowFields = showLot || showPartida || showTono || showWidth || showWeight;
@@ -238,9 +240,9 @@ export default function ArticleGroupSection({
 
       {/* Dynamic fields (Lote, Partida, Tono) depending on Custom config */}
       {/* Optional Shared Lote, Partida, Tono for Nuevo or Rollo with custom source */}
-      {(packingType === 'nuevo' || packingType === 'rollo') && group.source === 'custom' && pConfig && (pConfig.hasLot || pConfig.hasPartida || pConfig.hasTono) && (
+      {(packingType === 'nuevo' || packingType === 'rollo') && group.source === 'custom' && (isSanJacinto || (pConfig && (pConfig.hasLot || pConfig.hasPartida || pConfig.hasTono))) && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-app-bg p-3 rounded-lg border border-app-border">
-          {pConfig.hasLot && (
+          {pConfig?.hasLot && (
             <div>
               <label className="block text-xs md:text-[10px] font-bold text-app-text/80 mb-1 uppercase">
                 Lote (Compartido)
@@ -254,7 +256,7 @@ export default function ArticleGroupSection({
               />
             </div>
           )}
-          {pConfig.hasPartida && (
+          {pConfig?.hasPartida && (
             <div>
               <label className="block text-xs md:text-[10px] font-bold text-app-text/80 mb-1 uppercase">
                 Partida (Compartida)
@@ -268,7 +270,7 @@ export default function ArticleGroupSection({
               />
             </div>
           )}
-          {pConfig.hasTono && (
+          {(pConfig?.hasTono || isSanJacinto) && (
             <div>
               <label className="block text-xs md:text-[10px] font-bold text-app-text/80 mb-1 uppercase">
                 Tono / Color (Compartido)

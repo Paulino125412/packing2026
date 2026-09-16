@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Provider } from '../../types';
 import { ClipboardPaste } from 'lucide-react';
+import { isSanJacintoProvider } from '../../utils/sanJacintoRules';
 
 // Helper to sanitize and parse numeric values from Excel cells
 // Handles non-breaking spaces (\u00A0), thousand separators (1,250.50 or 1.250,50), unit suffixes (m, mts, kg), etc.
@@ -11,13 +12,16 @@ export const parseSanitizedNumeric = (val: string | number | null | undefined): 
   let str = String(val).trim();
   if (!str) return null;
 
-  // Replace non-breaking spaces and regular spaces around units
+  // Replace non-breaking spaces and invisible zero-width spaces
   str = str.replace(/[\u00A0\u200B\u202F]/g, ' ').trim();
 
-  // Strip known metric/measurement units and currency/other symbols
-  str = str.replace(/(metros|metro|metraje|mts|mtrs|mtr|mt|m|kilos|kilo|kgs|kg|pso|yds|yd|yardas|yarda|cm|mm|[\$€£])/gi, '').trim();
+  // Strip metric/measurement units attached to numbers or standing alone
+  str = str.replace(/(\d+)\s*(metros|metro|metraje|mts|mtrs|mtr|mt|m|kilos|kilo|kgs|kg|pso|yds|yd|yardas|yarda|cm|mm)\b/gi, '$1')
+           .replace(/\b(metros|metro|metraje|mts|mtrs|mtr|mt|m|kilos|kilo|kgs|kg|pso|yds|yd|yardas|yarda|cm|mm)\b/gi, '')
+           .replace(/^[\$€£]\s*/, '')
+           .trim();
 
-  // If there are still alphabetic characters left, it's not a purely numeric measurement
+  // If alphabetic characters remain (e.g. 'B' in '3B04067940' or 'LUE'), this is NOT a pure numeric measurement
   if (/[a-zA-Z]/g.test(str)) {
     return null;
   }
@@ -38,6 +42,22 @@ export const parseSanitizedNumeric = (val: string | number | null | undefined): 
 
   const num = parseFloat(str);
   return isNaN(num) || !isFinite(num) ? null : num;
+};
+
+// Helper to detect if a cell value represents an alphanumeric roll code (e.g. "3B04067940", "R-1002", "12A34")
+export const isAlphanumericRollCode = (val: string): boolean => {
+  if (!val) return false;
+  const clean = val.trim();
+  const withoutUnits = clean
+    .replace(/(\d+)\s*(metros|metro|metraje|mts|mtrs|mtr|mt|m|kilos|kilo|kgs|kg|pso|yds|yd|yardas|yarda|cm|mm)\b/gi, '$1')
+    .replace(/\b(metros|metro|metraje|mts|mtrs|mtr|mt|m|kilos|kilo|kgs|kg|pso|yds|yd|yardas|yarda|cm|mm)\b/gi, '')
+    .trim();
+
+  // Must contain both digits and letters (e.g. "3B04067940" with letter between digits, "12A34", "R-001")
+  const hasDigits = /\d/.test(withoutUnits);
+  const hasLetters = /[a-zA-Z]/.test(withoutUnits);
+
+  return hasDigits && hasLetters && withoutUnits.length >= 3 && withoutUnits.length <= 35;
 };
 
 // Helper to parse and classify Excel columns based on content heuristics and provider configuration
@@ -95,7 +115,7 @@ export const resolveColumnsForText = (
     /^(metraje|metraje\s*\(?m\)?|metros|metro|metr|metr\.|cant|cant\.|cantidad|qty|size|long|longitud|largo|medida|mts|mts\.|mtr|mtr\.|mtrs|mtrs\.|yds|yardas|yarda|mt|m)$/i.test(word) ||
     /^(lote|lot|batch|lote\.|lot\.|n[o°º]?\.?\s*lote)$/i.test(word) ||
     /^(partida|part|part\.|partida\s*[\/\-]\s*tintoreria|despacho|tintoreria|tintorería|op|ot|n[o°º]?\.?\s*partida)$/i.test(word) ||
-    /^(tono|tono\.|color|col|col\.|tono\s*[\/\-]\s*color|color\s*[\/\-]\s*tono|shad|shade|matiz|variante)$/i.test(word) ||
+    /^(t|ton|ton\.|tono|tono\.|color|col|col\.|tono\s*[\/\-]\s*color|color\s*[\/\-]\s*tono|shad|shade|matiz|variante)$/i.test(word) ||
     /^(ancho|ancho\s*\(?m\)?|width|anchura|anc|anc\.)$/i.test(word) ||
     /^(peso|peso\s*\(?kg\)?|peso\s*bruto|peso\s*neto|weight|kg|kgs|kilos|kilo|pso|gross|net|bruto|neto|p\.bruto|p\.neto)$/i.test(word)
   );
@@ -115,7 +135,7 @@ export const resolveColumnsForText = (
         lotColIdx = idx;
       } else if (/part|tintor|despacho|op|ot/i.test(col)) {
         partidaColIdx = idx;
-      } else if (/tono|color|col|shad|matiz|variante/i.test(col)) {
+      } else if (/tono|color|col|shad|matiz|variante|^t$|^ton$/i.test(col)) {
         tonoColIdx = idx;
       }
     });
@@ -159,6 +179,7 @@ export const resolveColumnsForText = (
         
         interface ColStat {
           index: number;
+          rowCount: number;
           isNumeric: boolean;
           allNumeric: boolean;
           numericCount: number;
@@ -175,6 +196,8 @@ export const resolveColumnsForText = (
           hasUnitsMeters: boolean;
           hasUnitsKg: boolean;
           isSequential: boolean;
+          uniqueRatio: number;
+          alphanumericRollCount: number;
         }
 
         const colAnalysis: ColStat[] = [];
@@ -196,6 +219,7 @@ export const resolveColumnsForText = (
           let twoDecimalsCount = 0;
           let unitsMetersCount = 0;
           let unitsKgCount = 0;
+          let alphanumericRollCount = 0;
           const numericSeries: number[] = [];
 
           vals.forEach(v => {
@@ -206,12 +230,21 @@ export const resolveColumnsForText = (
             const letters = cleanedVal.replace(/[^a-zA-Z]/g, '').length;
             totalLetters += letters;
 
-            if (/m|mts|mt|yd|yds/i.test(cleanedVal)) unitsMetersCount++;
-            if (/kg|kgs|kilos/i.test(cleanedVal)) unitsKgCount++;
+            if (/\b(m|mts|mt|mtrs|mtr|yd|yds)\b/i.test(cleanedVal) || /(?<=\d)(m|mts|mt|mtrs|mtr|yd|yds)$/i.test(cleanedVal)) {
+              unitsMetersCount++;
+            }
+            if (/\b(kg|kgs|kilos|kilo)\b/i.test(cleanedVal) || /(?<=\d)(kg|kgs|kilos|kilo)$/i.test(cleanedVal)) {
+              unitsKgCount++;
+            }
 
-            const numericCleaned = cleanedVal.replace(/m|mts|mt|kg|kgs|kilos|yd|yds/i, '').replace(',', '.').trim();
-            const n = parseFloat(numericCleaned);
-            if (!isNaN(n)) {
+            // Check if value represents an alphanumeric roll code (e.g. "3B04067940", "R-1002", "12A34")
+            if (isAlphanumericRollCode(cleanedVal)) {
+              alphanumericRollCount++;
+            }
+
+            // Parse numeric value strictly: parseSanitizedNumeric returns null if alphabetic chars remain
+            const n = parseSanitizedNumeric(cleanedVal);
+            if (n !== null) {
               numericCount++;
               sum += n;
               numericSeries.push(n);
@@ -245,10 +278,14 @@ export const resolveColumnsForText = (
             }
           }
 
+          const uniqueVals = new Set(vals.map(v => v.trim()));
+          const uniqueRatio = vals.length > 0 ? uniqueVals.size / vals.length : 0;
+
           colAnalysis.push({
             index: colIdx,
-            isNumeric: numericCount > vals.length * 0.4,
-            allNumeric: numericCount === vals.length,
+            rowCount: vals.length,
+            isNumeric: vals.length > 0 && numericCount > vals.length * 0.4,
+            allNumeric: vals.length > 0 && numericCount === vals.length,
             numericCount,
             avgVal: numericCount > 0 ? sum / numericCount : 0,
             minVal: min === Infinity ? 0 : min,
@@ -262,7 +299,9 @@ export const resolveColumnsForText = (
             twoDecimalsCount,
             hasUnitsMeters: unitsMetersCount > 0,
             hasUnitsKg: unitsKgCount > 0,
-            isSequential
+            isSequential,
+            uniqueRatio,
+            alphanumericRollCount
           });
         }
 
@@ -275,14 +314,79 @@ export const resolveColumnsForText = (
         if (widthColIdx !== -1) assignedCols.add(widthColIdx);
         if (weightColIdx !== -1) assignedCols.add(weightColIdx);
 
-        // Step A: Assign Width (ancho) if unassigned and matches 0.8m - 3.0m range with low variance
+        // =========================================================================
+        // STEP 1: Assign Roll Number (Nº Rollo) if unassigned
+        // Priority 1A: Alphanumeric roll identifiers with letters in between (e.g. "3B04067940")
+        // or prefixes (e.g. "R-1002", "12A34"). These can NEVER be width, metraje, or weight.
+        // =========================================================================
+        if (rollColIdx === -1 && (pConfig?.hasRollNo ?? true)) {
+          const alphaRollCand = colAnalysis.find(col =>
+            !assignedCols.has(col.index) &&
+            col.alphanumericRollCount >= Math.max(1, col.rowCount * 0.4) &&
+            col.uniqueRatio >= 0.6 &&
+            col.avgLength >= 3
+          );
+
+          if (alphaRollCand) {
+            rollColIdx = alphaRollCand.index;
+            assignedCols.add(alphaRollCand.index);
+          } else {
+            // Priority 1B: Sequential pure integers without decimals (e.g. 1, 2, 3, 4...)
+            const seqRollCand = colAnalysis.find(col =>
+              !assignedCols.has(col.index) &&
+              col.isSequential &&
+              !col.hasDecimals &&
+              col.minVal <= 1000
+            );
+
+            if (seqRollCand) {
+              rollColIdx = seqRollCand.index;
+              assignedCols.add(seqRollCand.index);
+            } else {
+              // Priority 1C: Long integer roll IDs/barcodes (5+ digits or >350, NO decimals)
+              const barcodeCand = colAnalysis.find(col =>
+                !assignedCols.has(col.index) &&
+                col.isNumeric &&
+                !col.hasDecimals &&
+                (col.avgDigits >= 5 || col.avgVal > 350) &&
+                col.uniqueRatio >= 0.7
+              );
+
+              if (barcodeCand) {
+                rollColIdx = barcodeCand.index;
+                assignedCols.add(barcodeCand.index);
+              } else {
+                // Priority 1D: Column 0 pure integer fallback if another column has physical measurements
+                const firstColCand = colAnalysis.find(col =>
+                  !assignedCols.has(col.index) &&
+                  col.index === 0 &&
+                  col.isNumeric &&
+                  !col.hasDecimals &&
+                  col.uniqueRatio >= 0.7 &&
+                  colAnalysis.some(c => c.index !== 0 && c.isNumeric && c.avgVal >= 15)
+                );
+
+                if (firstColCand) {
+                  rollColIdx = firstColCand.index;
+                  assignedCols.add(firstColCand.index);
+                }
+              }
+            }
+          }
+        }
+
+        // =========================================================================
+        // STEP 2: Assign Width (ancho) if unassigned and matches 0.8m - 3.2m range with low variance
+        // =========================================================================
         if (widthColIdx === -1) {
           const widthCandidate = colAnalysis.find(col => 
             !assignedCols.has(col.index) && 
             col.isNumeric && 
+            col.numericCount >= Math.max(1, col.rowCount * 0.6) &&
             col.avgVal >= 0.8 && 
             col.avgVal <= 3.2 && 
             (col.maxVal - col.minVal) <= 0.9 &&
+            !col.hasUnitsKg &&
             (pConfig?.hasWidth || maxColsCount >= 3)
           );
           if (widthCandidate) {
@@ -291,33 +395,15 @@ export const resolveColumnsForText = (
           }
         }
 
-        // Step B: Assign Roll Number (Nº Rollo) if unassigned
-        if (rollColIdx === -1 && (pConfig?.hasRollNo || maxColsCount >= 2)) {
-          // Look for sequential integers (1,2,3,4...) or large roll IDs (>350 or >= 5 digits)
-          const rollCandidate = colAnalysis.find(col => 
-            !assignedCols.has(col.index) && 
-            col.isNumeric && 
-            (
-              (col.isSequential && col.minVal <= 1000) || 
-              col.avgDigits >= 5 || 
-              col.avgVal > 350 ||
-              (col.index === 0 && colAnalysis.some(c => c.index !== 0 && c.isNumeric && c.avgVal >= 15))
-            )
-          );
-          if (rollCandidate) {
-            rollColIdx = rollCandidate.index;
-            assignedCols.add(rollCandidate.index);
-          }
-        }
-
-        // Step C: Discriminate Metraje (Meters) vs Peso (Weight)
+        // =========================================================================
+        // STEP 3: Discriminate Metraje (Meters) vs Peso (Weight)
         // Textile Physics Rule: Metraje is ALWAYS significantly greater than Peso (Metraje > Peso).
-        // Standard rolls: Meters ~ 40m - 200m (whole numbers 90, 100, 115 or decimals 56.54, 54.84), Weight ~ 12kg - 45kg.
+        // Standard rolls: Meters ~ 40m - 500m, Weight ~ 12kg - 85kg.
+        // =========================================================================
         const unassignedNumericCols = colAnalysis.filter(col => 
           !assignedCols.has(col.index) && 
           col.isNumeric && 
-          col.avgVal > 0 && 
-          col.avgVal <= 350
+          col.avgVal > 0
         );
 
         if (unassignedNumericCols.length > 0) {
@@ -346,15 +432,14 @@ export const resolveColumnsForText = (
             assignedCols.add(weightColIdx);
           } else if (metersColIdx === -1) {
             // Pick the best column for meters
-            // If any has units meters or typical meters magnitude (20m - 250m)
             const sortedForMeters = [...unassignedNumericCols].sort((a, b) => {
               if (a.hasUnitsMeters && !b.hasUnitsMeters) return -1;
               if (!a.hasUnitsMeters && b.hasUnitsMeters) return 1;
               if (a.hasUnitsKg && !b.hasUnitsKg) return 1;
               if (!a.hasUnitsKg && b.hasUnitsKg) return -1;
-              // Higher average in 25-250 range preferred over small < 20 values
-              const scoreA = (a.avgVal >= 25 && a.avgVal <= 250 ? 200 : 0) + (a.avgVal > b.avgVal ? 50 : 0);
-              const scoreB = (b.avgVal >= 25 && b.avgVal <= 250 ? 200 : 0) + (b.avgVal > a.avgVal ? 50 : 0);
+              // Higher average in textile fabric range (20m - 800m) preferred
+              const scoreA = (a.avgVal >= 20 && a.avgVal <= 800 ? 200 : 0) + (a.avgVal > b.avgVal ? 50 : 0);
+              const scoreB = (b.avgVal >= 20 && b.avgVal <= 800 ? 200 : 0) + (b.avgVal > a.avgVal ? 50 : 0);
               return scoreB - scoreA;
             });
 
@@ -369,12 +454,50 @@ export const resolveColumnsForText = (
           }
         }
 
-        // Step D: Assign remaining columns to Tono, Partida, Lote
+        // =========================================================================
+        // STEP 4: Assign remaining columns to Tono, Partida, Lote
+        // =========================================================================
+        const isSanJacinto = isSanJacintoProvider(pConfig);
         const remainingCols = colAnalysis.filter(c => !assignedCols.has(c.index));
 
+        // San Jacinto specific tone detection: prioritize columns with A, B, C, D or -
+        if (isSanJacinto && tonoColIdx === -1) {
+          const sanJacintoTonoCandidate = remainingCols.find(col => {
+            const linesSlice = lines.slice(startLineIndex);
+            let matchCount = 0;
+            let totalNonEmpty = 0;
+            for (const l of linesSlice) {
+              const cols = splitIntoColumns(l);
+              const raw = (cols[col.index] || '').trim().toUpperCase();
+              if (raw) {
+                totalNonEmpty++;
+                if (['A', 'B', 'C', 'D', '-'].includes(raw)) {
+                  matchCount++;
+                }
+              }
+            }
+            return totalNonEmpty > 0 && (matchCount / totalNonEmpty >= 0.4);
+          });
+          if (sanJacintoTonoCandidate) {
+            tonoColIdx = sanJacintoTonoCandidate.index;
+            assignedCols.add(sanJacintoTonoCandidate.index);
+          }
+        }
+
         remainingCols.forEach(col => {
-          // Tono / Color candidate (letters like "LTC", "AZUL", "NEGRO", "A", "B")
-          if (tonoColIdx === -1 && (pConfig?.hasTono || (!pConfig?.hasLot && !pConfig?.hasPartida))) {
+          if (assignedCols.has(col.index)) return;
+
+          // Priority 4A: Lot candidate if provider tracks lot and values look like short lot codes (<= 8 chars)
+          if (lotColIdx === -1 && pConfig?.hasLot && (!pConfig?.hasTono || col.avgDigits === 0)) {
+            if (col.avgLength <= 8) {
+              lotColIdx = col.index;
+              assignedCols.add(col.index);
+              return;
+            }
+          }
+
+          // Priority 4B: Tono / Color candidate (letters like "LTC", "AZUL", "NEGRO", "A", "B")
+          if (tonoColIdx === -1 && (isSanJacinto || pConfig?.hasTono || (!pConfig?.hasLot && !pConfig?.hasPartida))) {
             if (col.hasLetters || col.avgLength <= 6) {
               tonoColIdx = col.index;
               assignedCols.add(col.index);
@@ -382,7 +505,7 @@ export const resolveColumnsForText = (
             }
           }
 
-          // Partida candidate (4 to 8 digits numeric/alphanumeric)
+          // Priority 4C: Partida candidate (4 to 8 digits numeric/alphanumeric)
           if (partidaColIdx === -1 && pConfig?.hasPartida) {
             if (col.avgDigits >= 4 && col.avgDigits <= 8) {
               partidaColIdx = col.index;
@@ -391,9 +514,9 @@ export const resolveColumnsForText = (
             }
           }
 
-          // Lot candidate (short code <= 7 chars)
+          // Priority 4D: Lot candidate (short code <= 8 chars)
           if (lotColIdx === -1 && pConfig?.hasLot) {
-            if (col.avgLength <= 7) {
+            if (col.avgLength <= 8) {
               lotColIdx = col.index;
               assignedCols.add(col.index);
               return;
@@ -582,11 +705,12 @@ export default function ExcelPasteParser({
   // Compute live summary statistics and duplicate roll detection across all valid data lines
   const previewStats = (() => {
     if (!previewRes) return null;
-    const { metersColIdx, rollColIdx, lines, startLineIndex, splitIntoColumns } = previewRes;
+    const { metersColIdx, rollColIdx, weightColIdx, lines, startLineIndex, splitIntoColumns } = previewRes;
     const dataLinesToAnalyze = lines.slice(startLineIndex);
     
     let validRollsCount = 0;
     let totalMeters = 0;
+    let totalWeight = 0;
     const rollNumbersSeen: { [rollNum: string]: number } = {};
     const duplicateRolls: string[] = [];
 
@@ -613,6 +737,13 @@ export default function ExcelPasteParser({
           }
         }
       }
+
+      if (weightColIdx !== -1 && cols[weightColIdx] !== undefined) {
+        const wVal = parseSanitizedNumeric(cols[weightColIdx]);
+        if (wVal !== null && wVal > 0) {
+          totalWeight += wVal;
+        }
+      }
     });
 
     const avgMeters = validRollsCount > 0 ? totalMeters / validRollsCount : 0;
@@ -620,6 +751,7 @@ export default function ExcelPasteParser({
     return {
       validRollsCount,
       totalMeters: Number(totalMeters.toFixed(2)),
+      totalWeight: Number(totalWeight.toFixed(2)),
       avgMeters: Number(avgMeters.toFixed(2)),
       duplicateRolls
     };
@@ -716,20 +848,28 @@ export default function ExcelPasteParser({
 
           {/* Quick Pre-Processing Live Summary */}
           {previewStats && previewStats.validRollsCount > 0 && (
-            <div className="grid grid-cols-3 gap-2 bg-app-bg border border-app-border rounded-md p-2">
+            <div className={`grid ${previewStats.totalWeight > 0 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'} gap-2 bg-app-bg border border-app-border rounded-md p-2`}>
               <div className="text-center">
                 <span className="text-[9px] text-app-text/50 font-bold block uppercase tracking-wider">Total Rollos</span>
                 <span className="text-xs sm:text-sm font-black font-mono text-app-primary">
                   {previewStats.validRollsCount} <span className="text-[9px] font-sans font-normal text-app-text/60">uds</span>
                 </span>
               </div>
-              <div className="text-center border-x border-app-border">
+              <div className="text-center border-l sm:border-x border-app-border">
                 <span className="text-[9px] text-app-text/50 font-bold block uppercase tracking-wider">Metraje Total</span>
                 <span className="text-xs sm:text-sm font-black font-mono text-emerald-600 dark:text-emerald-400">
                   {previewStats.totalMeters.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] font-sans font-normal text-app-text/60">m</span>
                 </span>
               </div>
-              <div className="text-center">
+              {previewStats.totalWeight > 0 && (
+                <div className="text-center border-t sm:border-t-0 sm:border-r border-app-border pt-1 sm:pt-0">
+                  <span className="text-[9px] text-app-text/50 font-bold block uppercase tracking-wider">Peso Total</span>
+                  <span className="text-xs sm:text-sm font-black font-mono text-cyan-600 dark:text-cyan-400">
+                    {previewStats.totalWeight.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <span className="text-[9px] font-sans font-normal text-app-text/60">kg</span>
+                  </span>
+                </div>
+              )}
+              <div className={`text-center ${previewStats.totalWeight > 0 ? 'border-t sm:border-t-0 border-l sm:border-l-0 pt-1 sm:pt-0' : ''}`}>
                 <span className="text-[9px] text-app-text/50 font-bold block uppercase tracking-wider">Promedio / Rollo</span>
                 <span className="text-xs sm:text-sm font-black font-mono text-app-secondary">
                   {previewStats.avgMeters.toFixed(2)} <span className="text-[9px] font-sans font-normal text-app-text/60">m</span>

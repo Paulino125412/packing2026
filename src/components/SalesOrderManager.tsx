@@ -30,6 +30,7 @@ import {
   RotateCcw
 } from 'lucide-react';
 import PrintSalesOrder from './PrintSalesOrder';
+import PrintBlankSalesOrderModal from './PrintBlankSalesOrderModal';
 import { lookupRucOrDni } from '../lib/sunat';
 import { useToast } from '../context/ToastContext';
 import { analyzeSystemError } from '../lib/diagnostics';
@@ -57,6 +58,7 @@ export default function SalesOrderManager({
 
   // Print Modal State
   const [printOrder, setPrintOrder] = useState<SalesOrder | null>(null);
+  const [showBlankFichaModal, setShowBlankFichaModal] = useState(false);
 
   // Delete Target Modal
   const [deleteTarget, setDeleteTarget] = useState<SalesOrder | null>(null);
@@ -797,30 +799,43 @@ export default function SalesOrderManager({
           </div>
         </div>
 
-        {/* View Switcher Tabs */}
-        <div className="flex items-center gap-2 bg-app-bg p-1 rounded-lg border border-app-border">
-          <button
-            onClick={() => setViewMode('create')}
-            className={`px-4 py-2 rounded-md text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-              viewMode === 'create'
-                ? 'bg-app-primary text-white shadow-xs'
-                : 'text-app-text/70 hover:text-app-text hover:bg-app-surface'
-            }`}
-          >
-            <Plus size={14} />
-            {editingId ? 'Editar Orden' : 'Nueva Orden'}
-          </button>
+        {/* View Switcher Tabs & Print Blank Ficha Action */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 bg-app-bg p-1 rounded-lg border border-app-border">
+            <button
+              onClick={() => setViewMode('create')}
+              className={`px-4 py-2 rounded-md text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                viewMode === 'create'
+                  ? 'bg-app-primary text-white shadow-xs'
+                  : 'text-app-text/70 hover:text-app-text hover:bg-app-surface'
+              }`}
+            >
+              <Plus size={14} />
+              {editingId ? 'Editar Orden' : 'Nueva Orden'}
+            </button>
+
+            <button
+              onClick={() => setViewMode('history')}
+              className={`px-4 py-2 rounded-md text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                viewMode === 'history'
+                  ? 'bg-app-primary text-white shadow-xs'
+                  : 'text-app-text/70 hover:text-app-text hover:bg-app-surface'
+              }`}
+            >
+              <FileText size={14} />
+              Historial ({orders.length})
+            </button>
+          </div>
 
           <button
-            onClick={() => setViewMode('history')}
-            className={`px-4 py-2 rounded-md text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-              viewMode === 'history'
-                ? 'bg-app-primary text-white shadow-xs'
-                : 'text-app-text/70 hover:text-app-text hover:bg-app-surface'
-            }`}
+            type="button"
+            onClick={() => setShowBlankFichaModal(true)}
+            className="px-3.5 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer bg-app-surface hover:bg-app-bg border border-app-border text-app-text shadow-2xs hover:border-app-primary/50"
+            title="Imprimir Ficha de Venta en blanco (1 copia superior o 2 copias en A4) para llenado manual"
+            id="btn-print-blank-sales-ficha-top"
           >
-            <FileText size={14} />
-            Historial ({orders.length})
+            <Printer size={14} className="text-app-primary" />
+            <span>Imp. Ficha de Venta</span>
           </button>
         </div>
       </div>
@@ -844,6 +859,17 @@ export default function SalesOrderManager({
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBlankFichaModal(true)}
+                className="px-2.5 py-1 text-[11px] font-bold text-app-text/70 hover:text-app-primary hover:bg-app-bg rounded-md border border-dashed border-app-border/80 hover:border-app-primary transition flex items-center gap-1.5 cursor-pointer"
+                title="Imprimir Ficha de Venta en blanco para llenado manual"
+                id="btn-print-blank-sales-ficha-form"
+              >
+                <Printer size={12} className="text-app-primary" />
+                <span>Imp. Ficha de Venta</span>
+              </button>
+
               {editingId ? (
                 <button
                   type="button"
@@ -1752,6 +1778,13 @@ export default function SalesOrderManager({
           sellers={sellers}
           articles={articles}
           onClose={() => setPrintOrder(null)}
+        />
+      )}
+
+      {/* BLANK SALES ORDER FICHA MODAL (MANUAL FILLING TEMPLATE) */}
+      {showBlankFichaModal && (
+        <PrintBlankSalesOrderModal
+          onClose={() => setShowBlankFichaModal(false)}
         />
       )}
 

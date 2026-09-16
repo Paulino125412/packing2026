@@ -865,7 +865,7 @@ app.post("/api/generate-pdf", async (req, res) => {
   });
 });
 
-// Vite middleware for development mode
+// Server startup
 if (process.env.NODE_ENV !== "production") {
   startDevServer();
 } else {
@@ -873,15 +873,48 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 async function startDevServer() {
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: "spa",
-  });
-  app.use(vite.middlewares);
+  let viteMiddlewareInstance: any = null;
+  let viteReady = false;
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Dev Server running on http://0.0.0.0:${PORT}`);
+  // Intercept requests so API routes execute immediately and frontend routes wait for Vite if needed
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
+    if (viteReady && viteMiddlewareInstance) {
+      return viteMiddlewareInstance(req, res, next);
+    }
+    // If frontend request arrives while Vite is still loading, wait briefly
+    const interval = setInterval(() => {
+      if (viteReady && viteMiddlewareInstance) {
+        clearInterval(interval);
+        return viteMiddlewareInstance(req, res, next);
+      }
+    }, 50);
+    setTimeout(() => {
+      clearInterval(interval);
+      if (!res.headersSent) {
+        next();
+      }
+    }, 8000);
   });
+
+  // Bind to port 3000 immediately so container health checks succeed with zero delay
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Dev Server listening on http://0.0.0.0:${PORT}`);
+  });
+
+  try {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    viteMiddlewareInstance = vite.middlewares;
+    viteReady = true;
+    console.log("Vite dev middleware attached successfully.");
+  } catch (err) {
+    console.error("Error initializing Vite dev middleware:", err);
+  }
 }
 
 function startProdServer() {

@@ -13,73 +13,163 @@ interface PrintSalesOrderProps {
 }
 
 export const SALES_FICHA_PRINT_CSS = `
+  * {
+    box-sizing: border-box !important;
+  }
   .sales-ficha-print-sheet {
     font-family: Arial, Helvetica, sans-serif !important;
     color: #000000 !important;
     background-color: #ffffff !important;
     line-height: 1.35 !important;
+    width: 100% !important;
+    max-width: 194mm !important;
+    margin: 0 auto !important;
+    padding: 2mm !important;
   }
-  .sales-ficha-print-sheet * {
-    box-sizing: border-box !important;
+  .sales-ficha-print-sheet table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    border: 1.5px solid #000000 !important;
+    table-layout: fixed !important;
   }
-  .sales-ficha-print-sheet td,
+  .sales-ficha-print-sheet thead tr {
+    background-color: #e5e7eb !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   .sales-ficha-print-sheet th {
+    background-color: #e5e7eb !important;
+    border: 1px solid #000000 !important;
+    color: #000000 !important;
+    font-weight: bold !important;
+    text-align: center !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .sales-ficha-print-sheet td {
+    border: 1px solid #000000 !important;
+    color: #000000 !important;
     line-height: 1.35 !important;
   }
+  .sales-ficha-print-sheet .border-black {
+    border-color: #000000 !important;
+  }
+  .sales-ficha-print-sheet .border-r {
+    border-right: 1px solid #000000 !important;
+  }
+  .sales-ficha-print-sheet .border-b {
+    border-bottom: 1px solid #000000 !important;
+  }
+  .sales-ficha-print-sheet .border-dotted {
+    border-bottom: 1px dotted #000000 !important;
+  }
+  .sales-ficha-print-sheet .border-dashed {
+    border-bottom: 1px dashed #6b7280 !important;
+  }
+  @page {
+    size: 210mm 297mm;
+    margin: 0;
+  }
+  html, body {
+    background: white !important;
+    background-color: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 210mm !important;
+    height: 297mm !important;
+    overflow: hidden !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  body * {
+    visibility: hidden !important;
+  }
+  #print-section,
+  #print-section *,
+  .sales-ficha-print-sheet,
+  .sales-ficha-print-sheet *,
+  .sales-ficha-print-container,
+  .sales-ficha-print-container * {
+    visibility: visible !important;
+  }
+  #print-section {
+    background: white !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  #print-section > div {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .sales-ficha-print-container {
+    width: 210mm !important;
+    max-width: 210mm !important;
+    margin: 0 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 0 !important;
+    padding: 0 !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+  .sales-ficha-print-container.is-double-mode {
+    height: 297mm !important;
+    max-height: 297mm !important;
+    justify-content: space-between !important;
+  }
+  .sales-ficha-print-container.is-single-mode {
+    height: 148.5mm !important;
+    max-height: 148.5mm !important;
+    justify-content: flex-start !important;
+  }
+  .sales-ficha-half {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 0 4mm !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    flex-shrink: 0 !important;
+  }
+  .is-double-mode .sales-ficha-half {
+    height: 148.5mm !important;
+    max-height: 148.5mm !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+  }
+  .is-single-mode .sales-ficha-half {
+    height: 148.5mm !important;
+    max-height: 148.5mm !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    padding-top: 5mm !important;
+  }
+  .sales-ficha-print-sheet {
+    width: 100% !important;
+    max-width: 198mm !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    box-sizing: border-box !important;
+    padding: 1.5mm !important;
+    margin: 0 auto !important;
+  }
   @media print {
-    @page {
-      size: A4 portrait;
-      margin: 5mm;
-    }
     html, body {
-      background: white !important;
-      background-color: white !important;
-      color: black !important;
-      height: 100% !important;
-      max-height: 100% !important;
-      margin: 0 !important;
-      padding: 0 !important;
       overflow: hidden !important;
-      -webkit-print-color-adjust: exact !important;
-      print-color-adjust: exact !important;
-    }
-    #print-section, #print-section *, .sales-ficha-print-sheet, .sales-ficha-print-sheet * {
-      visibility: visible !important;
-    }
-    #print-section {
-      background: white !important;
-      background-color: white !important;
-      background-image: none !important;
-      position: absolute !important;
-      top: 0 !important;
-      left: 0 !important;
-      padding: 0 !important;
-      margin: 0 !important;
-      width: 100% !important;
-      height: auto !important;
-      box-shadow: none !important;
-      border: none !important;
-    }
-    #print-section > div {
-      background: white !important;
-      background-color: white !important;
-      box-shadow: none !important;
-      border: none !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      width: 100% !important;
-      max-width: 100% !important;
-    }
-    .sales-ficha-print-sheet {
-      max-height: 138mm !important;
-      height: auto !important;
-      page-break-inside: avoid !important;
-      break-inside: avoid !important;
-      page-break-after: avoid !important;
-      break-after: avoid !important;
-      box-sizing: border-box !important;
-      background: white !important;
-      background-color: white !important;
     }
   }
 `;
@@ -91,6 +181,7 @@ export default function PrintSalesOrder({
   articles,
   onClose
 }: PrintSalesOrderProps) {
+  const [printMode, setPrintMode] = useState<'single' | 'double'>('single');
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [isSharingWhatsApp, setIsSharingWhatsApp] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -144,7 +235,7 @@ export default function PrintSalesOrder({
   });
 
   const handlePdfAction = async (action: 'download' | 'whatsapp') => {
-    const element = document.querySelector('.sales-ficha-print-sheet') as HTMLElement;
+    const element = (document.querySelector('.sales-ficha-print-container') || document.querySelector('.sales-ficha-print-sheet')) as HTMLElement;
     if (!element) return;
 
     setPdfError(null);
@@ -160,26 +251,11 @@ export default function PrintSalesOrder({
       const filename = `Ficha_Venta_${clientNameClean}_${order.orderNo || ''}.pdf`;
 
       let pdfBlob: Blob;
+
+      // Método 1: Servidor Puppeteer oficial (PDF vectorial nítido con bordes y tipografía exacta)
       try {
-        // High-performance client-side generation using html2canvas + jsPDF
-        // Zero server memory required, ultra-fast (<300ms), immune to Cloud Run container crashes
-        pdfBlob = await generatePdfFromElement(element, { filename });
-      } catch (clientErr) {
-        console.warn('Client-side PDF generation failed, attempting server fallback:', clientErr);
-        // Fallback to server endpoint if ever needed
-        const collectAllCss = (): string => {
-          let css = '';
-          for (const sheet of Array.from(document.styleSheets)) {
-            try {
-              const rules = sheet.cssRules;
-              css += Array.from(rules).map(r => r.cssText).join('\n') + '\n';
-            } catch {
-              // Ignore cross-origin stylesheet errors
-            }
-          }
-          return css;
-        };
-        const fullCss = `${collectAllCss()}\n${SALES_FICHA_PRINT_CSS}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
 
         const response = await fetch('/api/generate-pdf', {
           method: 'POST',
@@ -188,24 +264,21 @@ export default function PrintSalesOrder({
           },
           body: JSON.stringify({
             html: element.outerHTML,
-            css: fullCss,
+            css: SALES_FICHA_PRINT_CSS,
           }),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
-          let errorMsg = 'No se pudo generar el PDF.';
-          try {
-            const errData = await response.json();
-            if (errData.details || errData.error) {
-              errorMsg = errData.details || errData.error;
-            }
-          } catch {
-            // ignore parsing error
-          }
-          throw new Error(errorMsg);
+          throw new Error('El servidor respondió con código ' + response.status);
         }
 
         pdfBlob = await response.blob();
+      } catch (serverErr) {
+        console.warn('Generación de PDF en servidor falló o tardó demasiado, usando motor de respaldo en cliente:', serverErr);
+        // Método 2: Respaldo cliente con contenedor fijo A4 de 800px y estilos forzados
+        pdfBlob = await generatePdfFromElement(element, { filename, marginMm: 0 });
       }
 
       if (action === 'download') {
@@ -273,6 +346,34 @@ export default function PrintSalesOrder({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Mode Selector: 1 Copia (Parte Superior) vs 2 Copias (Superior e Inferior) */}
+            <div className="flex items-center bg-app-bg p-0.5 rounded-lg border border-app-border text-xs">
+              <button
+                type="button"
+                onClick={() => setPrintMode('single')}
+                className={`px-3 py-1.5 rounded-md transition font-medium cursor-pointer ${
+                  printMode === 'single'
+                    ? 'bg-app-primary text-white font-bold shadow-xs'
+                    : 'text-app-text/70 hover:text-app-text'
+                }`}
+                title="Imprimir únicamente en la parte superior (1/2 Hoja A4)"
+              >
+                1 Copia (Parte Superior)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintMode('double')}
+                className={`px-3 py-1.5 rounded-md transition font-medium cursor-pointer ${
+                  printMode === 'double'
+                    ? 'bg-app-primary text-white font-bold shadow-xs'
+                    : 'text-app-text/70 hover:text-app-text'
+                }`}
+                title="Imprimir dos fichas en una sola hoja A4 (Superior e Inferior)"
+              >
+                2 Copias (Superior e Inferior)
+              </button>
+            </div>
+
             <button
               onClick={() => handlePdfAction('download')}
               disabled={isGeneratingPDF || isSharingWhatsApp}
@@ -300,7 +401,7 @@ export default function PrintSalesOrder({
               className="px-4 py-1.5 bg-app-primary hover:bg-app-primary/90 text-white font-bold text-xs rounded flex items-center gap-1.5 transition shadow-xs cursor-pointer"
             >
               <Printer size={14} />
-              Imprimir (1/2 Hoja A4)
+              Imprimir A4
             </button>
 
             <button
@@ -322,10 +423,19 @@ export default function PrintSalesOrder({
         )}
       </div>
 
-      {/* Print Document Container - Designed for A4 page half */}
+      {/* Print Document Container - Designed for A4 page */}
       <div className="w-full max-w-4xl bg-white text-black p-4 sm:p-6 print:p-0 rounded-b-xl print:rounded-none shadow-2xl print:shadow-none print:w-full">
         {/* Printable Area matching exact design */}
-        <div className="sales-ficha-print-sheet mx-auto bg-white text-black font-sans text-[11px] leading-normal p-3 max-w-[210mm] print:max-w-none">
+        <div
+          className={`sales-ficha-print-container is-${printMode}-mode mx-auto flex flex-col justify-between ${
+            printMode === 'double'
+              ? 'min-h-[1075px] h-[1075px] print:h-[297mm]'
+              : 'min-h-[538px] print:h-[148.5mm]'
+          }`}
+        >
+          {(() => {
+            const fichaSheetNode = (
+              <div className="sales-ficha-print-sheet mx-auto bg-white text-black font-sans text-[11px] leading-normal p-3 max-w-[210mm] print:max-w-none">
           
           {/* 1. Title */}
           <div className="text-center font-bold text-base sm:text-lg text-black mb-1">
@@ -599,9 +709,24 @@ export default function PrintSalesOrder({
               </div>
             </div>
           </div>
+        </div>
+            );
 
-          {/* Bottom Cut Line */}
-          <div className="mt-3 border-b border-dashed border-gray-500 w-full"></div>
+            return (
+              <>
+                {fichaSheetNode}
+
+                {printMode === 'double' && (
+                  <>
+                    {/* Clean separator without text or scissors */}
+                    <div className="sales-ficha-separator my-1 print:my-0" />
+
+                    {fichaSheetNode}
+                  </>
+                )}
+              </>
+            );
+          })()}
         </div>
       </div>
 

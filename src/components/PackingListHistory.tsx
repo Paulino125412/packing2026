@@ -265,6 +265,18 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
     });
   }, [sortedPackingLists, searchTerm, filterType, filterClientId, startDate, endDate, showOnlyNoGuide, clients, sellers]);
 
+  const { totalFilteredMeters, totalFilteredItems } = useMemo(() => {
+    let meters = 0;
+    let items = 0;
+    for (const pl of filteredLists) {
+      items += pl.items.length;
+      for (const item of pl.items) {
+        meters += item.meters || 0;
+      }
+    }
+    return { totalFilteredMeters: meters, totalFilteredItems: items };
+  }, [filteredLists]);
+
   const initiateDelete = (pl: PackingList) => {
     setDeleteError(null);
     setDeleteSuccess(null);
@@ -338,7 +350,7 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {deleteSuccess && !deleteTarget && (
         <AlertBanner
           type="success"
@@ -357,37 +369,38 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
         />
       )}
 
-      {/* Search and Filters - Serious High End UI */}
-      <div className="bg-app-surface border border-app-border rounded-lg p-5 shadow-xs">
-        <h3 className="text-xs font-bold text-app-text/50 uppercase tracking-wider mb-4 flex items-center gap-2">
-          <Filter size={12} className="text-app-text/50" />
-          Filtros de Búsqueda de Despachos
-        </h3>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 items-end">
+      {/* Search, Filters & Live KPI Summary - Compact Corporate Toolbar */}
+      <div className="bg-app-surface border border-app-border rounded-lg p-3 shadow-xs space-y-2.5">
+        {/* Row 1: Search & Filter inputs */}
+        <div className="flex flex-wrap items-center gap-2">
           {/* Quick search */}
-          <div className="md:col-span-2">
-            <label className="block text-[11px] font-bold text-app-text/60 mb-1.5 uppercase tracking-wider">Buscar por Documento o Cliente</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-2 text-app-text/45" size={13} />
-              <input
-                type="text"
-                placeholder="Nº Packing list, cliente, vendedor..."
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 border border-app-border rounded text-xs focus:outline-hidden focus:ring-1 focus:ring-app-primary bg-app-surface text-app-text transition"
-                id="search-packinglist"
-              />
-            </div>
+          <div className="relative flex-1 min-w-[200px] sm:min-w-[240px]">
+            <Search className="absolute left-2.5 top-2 text-app-text/45" size={13} />
+            <input
+              type="text"
+              placeholder="Buscar Nº Packing list, cliente, vendedor..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="w-full pl-8 pr-7 py-1 border border-app-border rounded text-xs focus:outline-hidden focus:ring-1 focus:ring-app-primary bg-app-surface text-app-text transition placeholder:text-app-text/40 h-8"
+              id="search-packinglist"
+            />
+            {searchTerm && (
+              <button
+                onClick={() => setSearchTerm('')}
+                className="absolute right-2 top-2 text-app-text/40 hover:text-app-text cursor-pointer"
+                title="Borrar búsqueda"
+              >
+                <X size={12} />
+              </button>
+            )}
           </div>
 
           {/* Type filter */}
-          <div>
-            <label className="block text-[11px] font-bold text-app-text/60 mb-1.5 uppercase tracking-wider">Tipo de Formato</label>
+          <div className="w-auto min-w-[140px]">
             <select
               value={filterType}
               onChange={e => setFilterType(e.target.value)}
-              className="w-full px-3 py-1.5 border border-app-border rounded text-xs bg-app-surface text-app-text focus:ring-1 focus:ring-app-primary focus:outline-hidden transition cursor-pointer font-medium"
+              className="w-full px-2.5 py-1 border border-app-border rounded text-xs bg-app-surface text-app-text focus:ring-1 focus:ring-app-primary focus:outline-hidden transition cursor-pointer font-medium h-8"
               id="filter-pl-type"
             >
               <option value="all">Todos los formatos</option>
@@ -399,67 +412,38 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
           </div>
 
           {/* Date range filter */}
-          <div>
-            <label className="block text-[11px] font-bold text-app-text/60 mb-1.5 uppercase tracking-wider">Desde Fecha</label>
+          <div className="flex items-center gap-1.5 bg-app-bg/50 border border-app-border rounded px-2 h-8">
+            <span className="text-[10px] font-bold text-app-text/50 uppercase tracking-wider">Desde:</span>
             <input
               type="date"
               value={startDate}
               onChange={e => setStartDate(e.target.value)}
-              className="w-full px-3 py-1.5 border border-app-border rounded text-xs bg-app-surface text-app-text focus:ring-1 focus:ring-app-primary transition font-medium focus:outline-hidden"
+              className="px-1 py-0.5 border-0 bg-transparent text-xs text-app-text focus:ring-0 focus:outline-hidden font-medium cursor-pointer"
+              title="Desde fecha"
             />
-          </div>
-
-          <div>
-            <label className="block text-[11px] font-bold text-app-text/60 mb-1.5 uppercase tracking-wider">Hasta Fecha</label>
+            <span className="text-[10px] font-bold text-app-text/50 uppercase tracking-wider ml-0.5">Hasta:</span>
             <input
               type="date"
               value={endDate}
               onChange={e => setEndDate(e.target.value)}
-              className="w-full px-3 py-1.5 border border-app-border rounded text-xs bg-app-surface text-app-text focus:ring-1 focus:ring-app-primary transition font-medium focus:outline-hidden"
+              className="px-1 py-0.5 border-0 bg-transparent text-xs text-app-text focus:ring-0 focus:outline-hidden font-medium cursor-pointer"
+              title="Hasta fecha"
             />
           </div>
-        </div>
 
-        {/* Filtro adicional para guía */}
-        <div className="mt-4 flex items-center">
-          <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-app-text/80 select-none">
+          {/* Checkbox "Sin guía" */}
+          <label className="inline-flex items-center gap-1.5 px-2.5 h-8 border border-app-border rounded bg-app-bg/40 hover:bg-app-bg text-xs font-semibold text-app-text cursor-pointer select-none transition">
             <input
               type="checkbox"
               checked={showOnlyNoGuide}
               onChange={e => setShowOnlyNoGuide(e.target.checked)}
-              className="rounded border-app-border text-app-primary focus:ring-app-primary focus:ring-offset-0 bg-app-surface w-4 h-4 cursor-pointer"
+              className="rounded border-app-border text-app-primary focus:ring-app-primary focus:ring-offset-0 bg-app-surface w-3.5 h-3.5 cursor-pointer"
               id="filter-pl-no-guide"
             />
-            <span>Mostrar solo Packing Lists sin número de guía</span>
+            <span className="whitespace-nowrap text-[11px]">Sin guía</span>
           </label>
-        </div>
 
-        <div className="flex flex-wrap justify-between items-center gap-3 mt-5 pt-4 border-t border-app-border">
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-xs text-app-text/60 font-medium">
-              Mostrando <span className="font-semibold text-app-text">{filteredLists.length}</span> documentos de packing list registrados.
-            </p>
-            {filteredLists.length > 0 && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleExportSummary}
-                  className="px-3 py-1 bg-app-surface hover:bg-app-bg text-app-text border border-app-border rounded text-[10px] font-bold flex items-center gap-1.5 transition uppercase tracking-wider cursor-pointer"
-                  title="Exportar resumen de documentos filtrados a Excel"
-                >
-                  <FileSpreadsheet size={12} className="text-app-text/50" />
-                  Exportar Resumen
-                </button>
-                <button
-                  onClick={handleExportFullDetails}
-                  className="px-3 py-1 bg-app-primary hover:bg-app-primary/90 text-white rounded text-[10px] font-bold flex items-center gap-1.5 transition uppercase tracking-wider cursor-pointer shadow-xs"
-                  title="Exportar todos los rollos/cortes de documentos filtrados en formato plano a Excel"
-                >
-                  <FileSpreadsheet size={12} />
-                  Exportar Detalle Completo
-                </button>
-              </div>
-            )}
-          </div>
+          {/* Clear filters */}
           {(searchTerm || filterType !== 'all' || startDate || endDate || showOnlyNoGuide) && (
             <button
               onClick={() => {
@@ -469,54 +453,66 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
                 setEndDate('');
                 setShowOnlyNoGuide(false);
               }}
-              className="text-[10px] uppercase tracking-wider text-app-text/60 hover:text-app-text font-bold transition cursor-pointer"
+              className="h-8 px-2 text-[10px] uppercase tracking-wider text-app-text/60 hover:text-red-500 font-bold transition cursor-pointer flex items-center gap-1 border border-transparent hover:border-red-500/20 rounded"
+              title="Restablecer filtros"
             >
-              Limpiar Filtros
+              <X size={12} />
+              Limpiar
             </button>
           )}
         </div>
-      </div>
 
-      {/* KPI Cards / Statistics Panel */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {/* Card 1: Total Despachos */}
-        <div className="ticket-perforated p-5 flex flex-col justify-between">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold text-app-text/50 uppercase tracking-wider">Total de Despachos</span>
-            <span className="bg-app-bg text-app-text text-[10px] px-2 py-0.5 rounded font-bold">Docs</span>
-          </div>
-          <div className="mt-3">
-            <span className="text-2xl font-bold text-app-text tracking-tight">{filteredLists.length.toLocaleString('es-PE')}</span>
-            <span className="text-[10px] text-app-text/50 block mt-1 font-medium">Documentos registrados en este filtro</span>
-          </div>
-        </div>
+        {/* Row 2: Integrated Metrics & Export Actions */}
+        <div className="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-app-border/60 text-xs">
+          {/* Live KPI Metric Badges */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Stat 1: Total Despachos */}
+            <div className="flex items-center gap-1.5 bg-app-bg border border-app-border rounded px-2.5 py-1 text-xs" title="Total de documentos registrados en el filtro">
+              <span className="text-[10px] font-bold text-app-text/50 uppercase tracking-wider">Despachos:</span>
+              <span className="font-bold font-mono text-app-text">{filteredLists.length.toLocaleString('es-PE')}</span>
+              <span className="text-[8px] font-bold uppercase px-1 py-0.2 bg-app-surface border border-app-border/70 rounded text-app-text/60">docs</span>
+            </div>
 
-        {/* Card 2: Total Metraje */}
-        <div className="ticket-perforated p-5 flex flex-col justify-between">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold text-app-text/50 uppercase tracking-wider">Metraje Despachado</span>
-            <span className="bg-app-bg text-app-secondary text-[10px] px-2 py-0.5 rounded font-bold">Mts</span>
-          </div>
-          <div className="mt-3">
-            <span className="text-2xl font-bold text-app-text tracking-tight">
-              {filteredLists.reduce((acc, pl) => acc + pl.items.reduce((sum, item) => sum + item.meters, 0), 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </span>
-            <span className="text-[10px] text-app-text/50 block mt-1 font-medium">Metros totales despachados</span>
-          </div>
-        </div>
+            {/* Stat 2: Metraje Despachado */}
+            <div className="flex items-center gap-1.5 bg-app-bg border border-app-border rounded px-2.5 py-1 text-xs" title="Metros totales despachados">
+              <span className="text-[10px] font-bold text-app-text/50 uppercase tracking-wider">Metraje:</span>
+              <span className="font-bold font-mono text-emerald-600 dark:text-emerald-400">
+                {totalFilteredMeters.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className="text-[8px] font-bold uppercase px-1 py-0.2 bg-app-surface border border-app-border/70 rounded text-emerald-600/80 dark:text-emerald-400/80">m</span>
+            </div>
 
-        {/* Card 3: Total Rollos / Cortes */}
-        <div className="ticket-perforated p-5 flex flex-col justify-between">
-          <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold text-app-text/50 uppercase tracking-wider">Total Rollos / Cortes</span>
-            <span className="bg-app-bg text-app-text text-[10px] px-2 py-0.5 rounded font-bold">Ítems</span>
+            {/* Stat 3: Total Rollos / Cortes */}
+            <div className="flex items-center gap-1.5 bg-app-bg border border-app-border rounded px-2.5 py-1 text-xs" title="Cantidad total de piezas despachadas">
+              <span className="text-[10px] font-bold text-app-text/50 uppercase tracking-wider">Rollos / Cortes:</span>
+              <span className="font-bold font-mono text-app-secondary">
+                {totalFilteredItems.toLocaleString('es-PE')}
+              </span>
+              <span className="text-[8px] font-bold uppercase px-1 py-0.2 bg-app-surface border border-app-border/70 rounded text-app-secondary/80">piezas</span>
+            </div>
           </div>
-          <div className="mt-3">
-            <span className="text-2xl font-bold text-app-text tracking-tight">
-              {filteredLists.reduce((acc, pl) => acc + pl.items.length, 0).toLocaleString('es-PE')}
-            </span>
-            <span className="text-[10px] text-app-text/50 block mt-1 font-medium">Cantidad de piezas despachadas</span>
-          </div>
+
+          {/* Export Actions */}
+          {filteredLists.length > 0 && (
+            <div className="flex items-center gap-1.5 ml-auto">
+              <button
+                onClick={handleExportSummary}
+                className="px-2.5 py-1 bg-app-surface hover:bg-app-bg text-app-text border border-app-border rounded text-[10px] font-bold flex items-center gap-1.5 transition uppercase tracking-wider cursor-pointer h-7"
+                title="Exportar resumen de documentos filtrados a Excel"
+              >
+                <FileSpreadsheet size={12} className="text-app-text/50" />
+                Exportar Resumen
+              </button>
+              <button
+                onClick={handleExportFullDetails}
+                className="px-2.5 py-1 bg-app-primary hover:bg-app-primary/90 text-white rounded text-[10px] font-bold flex items-center gap-1.5 transition uppercase tracking-wider cursor-pointer shadow-xs h-7"
+                title="Exportar todos los rollos/cortes de documentos filtrados en formato plano a Excel"
+              >
+                <FileSpreadsheet size={12} />
+                Exportar Detalle Completo
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
