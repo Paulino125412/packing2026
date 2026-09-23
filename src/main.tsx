@@ -5,6 +5,33 @@ import App from './App.tsx';
 import { ToastProvider } from './context/ToastContext.tsx';
 import './index.css';
 
+// Handle dynamic module import failures when a new applet version is published
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault();
+  const lastReload = sessionStorage.getItem('last_chunk_preload_reload');
+  const now = Date.now();
+  if (!lastReload || now - parseInt(lastReload, 10) > 8000) {
+    sessionStorage.setItem('last_chunk_preload_reload', String(now));
+    window.location.reload();
+  }
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const msg = String(event?.reason?.message || event?.reason || '');
+  if (
+    msg.includes('dynamically imported module') ||
+    msg.includes('Importing a module script failed') ||
+    msg.includes('Failed to fetch dynamically imported module')
+  ) {
+    const lastReload = sessionStorage.getItem('last_chunk_error_reload');
+    const now = Date.now();
+    if (!lastReload || now - parseInt(lastReload, 10) > 8000) {
+      sessionStorage.setItem('last_chunk_error_reload', String(now));
+      window.location.reload();
+    }
+  }
+});
+
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN || 'https://da0301551a812032c76704b5e10c7090@o4511997556097024.ingest.us.sentry.io/4512040508588032';
 
 if (sentryDsn) {

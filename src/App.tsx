@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { 
   db, 
   seedDatabaseIfEmpty, 
@@ -41,14 +41,16 @@ import {
 
 // Components
 import PackingListForm from './components/PackingListForm';
-import PackingListHistory from './components/PackingListHistory';
-import InventoryManager from './components/InventoryManager';
-import CatalogManager from './components/CatalogManager';
-import SalesOrderManager from './components/SalesOrderManager';
 import AlertBanner from './components/AlertBanner';
-import PrintPackingList from './components/PrintPackingList';
-import QuickSearchPalette from './components/QuickSearchPalette';
-import DevRulesMonitor from './components/DevRulesMonitor';
+
+// Lazy-loaded modules for code-splitting
+const PackingListHistory = lazy(() => import('./components/PackingListHistory'));
+const InventoryManager = lazy(() => import('./components/InventoryManager'));
+const CatalogManager = lazy(() => import('./components/CatalogManager'));
+const SalesOrderManager = lazy(() => import('./components/SalesOrderManager'));
+const PrintPackingList = lazy(() => import('./components/PrintPackingList'));
+const QuickSearchPalette = lazy(() => import('./components/QuickSearchPalette'));
+const DevRulesMonitor = lazy(() => import('./components/DevRulesMonitor'));
 
 type AppTab = 'generate' | 'sales_order' | 'catalogs' | 'inventory' | 'history';
 
@@ -948,7 +950,9 @@ export default function App() {
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Developer Business Rules & Health Monitor */}
-            <DevRulesMonitor data={{ inventory, packingLists, articles, providers, clients, sellers }} />
+            <Suspense fallback={null}>
+              <DevRulesMonitor data={{ inventory, packingLists, articles, providers, clients, sellers }} />
+            </Suspense>
 
             {/* Quick Search Trigger Button */}
             <button
@@ -1002,7 +1006,14 @@ export default function App() {
               <p className="text-[10px] text-app-text/50 font-mono">Cargando módulos de WMS Enterprise</p>
             </div>
           ) : (
-            getActiveTabComponent()
+            <Suspense fallback={
+              <div className="flex flex-col justify-center items-center h-80 gap-3 bg-app-surface border border-app-border rounded-lg p-8 shadow-xs">
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-app-primary border-t-transparent"></div>
+                <p className="text-xs font-semibold text-app-text">Cargando módulo...</p>
+              </div>
+            }>
+              {getActiveTabComponent()}
+            </Suspense>
           )}
         </main>
 
@@ -1047,32 +1058,38 @@ export default function App() {
 
       {/* Printable Dual Copy Popup Modal Overlay */}
       {selectedPrintList && (
-        <PrintPackingList
-          packingList={selectedPrintList}
-          clients={clients}
-          sellers={sellers}
-          providers={providers}
-          articles={articles}
-          onClose={() => setSelectedPrintList(null)}
-          onEdit={(pl) => {
-            setSelectedPrintList(null);
-            setEditingPackingList(pl);
-            setIsDuplicate(false);
-            setActiveTab('generate');
-          }}
-        />
+        <Suspense fallback={null}>
+          <PrintPackingList
+            packingList={selectedPrintList}
+            clients={clients}
+            sellers={sellers}
+            providers={providers}
+            articles={articles}
+            onClose={() => setSelectedPrintList(null)}
+            onEdit={(pl) => {
+              setSelectedPrintList(null);
+              setEditingPackingList(pl);
+              setIsDuplicate(false);
+              setActiveTab('generate');
+            }}
+          />
+        </Suspense>
       )}
 
       {/* Quick Search Global Command Palette */}
-      <QuickSearchPalette
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        clients={clients}
-        articles={articles}
-        packingLists={packingLists}
-        inventory={inventory}
-        onSelectResult={handleSelectSearchResult}
-      />
+      {isSearchOpen && (
+        <Suspense fallback={null}>
+          <QuickSearchPalette
+            isOpen={isSearchOpen}
+            onClose={() => setIsSearchOpen(false)}
+            clients={clients}
+            articles={articles}
+            packingLists={packingLists}
+            inventory={inventory}
+            onSelectResult={handleSelectSearchResult}
+          />
+        </Suspense>
+      )}
 
       {/* Cloud Connection Error / Timeout Modal Overlay */}
       {showConnectionErrorModal && (

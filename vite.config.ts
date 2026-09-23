@@ -21,8 +21,8 @@ export default defineConfig(() => {
         },
         manifest: {
           name: 'BUSINESS SUITE',
-          short_name: 'TexFlow',
-          description: 'TexFlow - Business Suite for Packing Lists and Inventory',
+          short_name: 'BUSINESS SUITE',
+          description: 'Sistema de gestión empresarial para packing lists con control de inventario de rollos, despachos de cortes, trazabilidad de movimientos y reportes en PDF.',
           theme_color: '#8B5E34',
           background_color: '#F5F3EE',
           display: 'standalone',
@@ -62,6 +62,35 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    build: {
+      chunkSizeWarningLimit: 800,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('@sentry')) {
+                return 'vendor-sentry';
+              }
+              if (id.includes('firebase')) {
+                return 'vendor-firebase';
+              }
+              if (id.includes('jspdf') || id.includes('html2canvas')) {
+                return 'vendor-pdf';
+              }
+              if (id.includes('lucide-react')) {
+                return 'vendor-icons';
+              }
+              if (id.includes('motion')) {
+                return 'vendor-motion';
+              }
+              if (id.includes('react') || id.includes('scheduler')) {
+                return 'vendor-react';
+              }
+            }
+          },
+        },
+      },
     },
   };
 });

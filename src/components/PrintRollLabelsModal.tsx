@@ -463,6 +463,7 @@ export default function PrintRollLabelsModal({
                             alt="JUDITEX" 
                             className={`${selectedFormat === 'thermal-50x30' ? 'h-3.5 max-h-[14px]' : 'h-5 max-h-[20px]'} w-auto object-contain shrink-0`}
                             referrerPolicy="no-referrer"
+                            crossOrigin="anonymous"
                           />
                         )}
                         <span className="font-extrabold text-[10px] sm:text-[11px] uppercase tracking-tight text-black truncate leading-tight">

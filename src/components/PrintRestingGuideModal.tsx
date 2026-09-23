@@ -36,6 +36,7 @@ export default function PrintRestingGuideModal({ onClose }: PrintRestingGuideMod
             alt="JUDITEX" 
             className="h-8 sm:h-10 md:h-11 max-h-[42px] w-auto object-contain print:h-9 print:max-h-[38px] print:opacity-100" 
             referrerPolicy="no-referrer"
+            crossOrigin="anonymous"
           />
         </div>
       </div>

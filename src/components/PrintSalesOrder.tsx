@@ -17,14 +17,14 @@ export const SALES_FICHA_PRINT_CSS = `
     box-sizing: border-box !important;
   }
   .sales-ficha-print-sheet {
-    font-family: Arial, Helvetica, sans-serif !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
     color: #000000 !important;
     background-color: #ffffff !important;
-    line-height: 1.35 !important;
+    line-height: 1.3 !important;
     width: 100% !important;
     max-width: 194mm !important;
     margin: 0 auto !important;
-    padding: 2mm !important;
+    padding: 1.5mm !important;
   }
   .sales-ficha-print-sheet table {
     width: 100% !important;
@@ -49,7 +49,7 @@ export const SALES_FICHA_PRINT_CSS = `
   .sales-ficha-print-sheet td {
     border: 1px solid #000000 !important;
     color: #000000 !important;
-    line-height: 1.35 !important;
+    line-height: 1.3 !important;
   }
   .sales-ficha-print-sheet .border-black {
     border-color: #000000 !important;
@@ -66,110 +66,116 @@ export const SALES_FICHA_PRINT_CSS = `
   .sales-ficha-print-sheet .border-dashed {
     border-bottom: 1px dashed #6b7280 !important;
   }
-  @page {
-    size: 210mm 297mm;
-    margin: 0;
-  }
-  html, body {
-    background: white !important;
-    background-color: white !important;
-    color: black !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 210mm !important;
-    height: 297mm !important;
-    overflow: hidden !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  body * {
-    visibility: hidden !important;
-  }
-  #print-section,
-  #print-section *,
-  .sales-ficha-print-sheet,
-  .sales-ficha-print-sheet *,
-  .sales-ficha-print-container,
-  .sales-ficha-print-container * {
-    visibility: visible !important;
-  }
-  #print-section {
-    background: white !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    width: 100% !important;
-    box-shadow: none !important;
-    border: none !important;
-  }
-  #print-section > div {
-    box-shadow: none !important;
-    border: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
-  }
-  .sales-ficha-print-container {
-    width: 210mm !important;
-    max-width: 210mm !important;
-    margin: 0 auto !important;
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 0 !important;
-    padding: 0 !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-  }
-  .sales-ficha-print-container.is-double-mode {
-    height: 297mm !important;
-    max-height: 297mm !important;
-    justify-content: space-between !important;
-  }
-  .sales-ficha-print-container.is-single-mode {
-    height: 148.5mm !important;
-    max-height: 148.5mm !important;
-    justify-content: flex-start !important;
-  }
   .sales-ficha-half {
     width: 100% !important;
     box-sizing: border-box !important;
-    padding: 0 4mm !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    flex-shrink: 0 !important;
-  }
-  .is-double-mode .sales-ficha-half {
-    height: 148.5mm !important;
-    max-height: 148.5mm !important;
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: center !important;
-    align-items: center !important;
-  }
-  .is-single-mode .sales-ficha-half {
-    height: 148.5mm !important;
-    max-height: 148.5mm !important;
     display: flex !important;
     flex-direction: column !important;
     justify-content: flex-start !important;
     align-items: center !important;
-    padding-top: 5mm !important;
   }
-  .sales-ficha-print-sheet {
-    width: 100% !important;
-    max-width: 198mm !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    box-sizing: border-box !important;
-    padding: 1.5mm !important;
-    margin: 0 auto !important;
-  }
+
   @media print {
+    @page {
+      size: 210mm 297mm;
+      margin: 0;
+    }
     html, body {
+      background: white !important;
+      background-color: white !important;
+      color: black !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 210mm !important;
+      height: 297mm !important;
       overflow: hidden !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body * {
+      visibility: hidden !important;
+    }
+    #print-section,
+    #print-section *,
+    .sales-ficha-print-sheet,
+    .sales-ficha-print-sheet *,
+    .sales-ficha-print-container,
+    .sales-ficha-print-container * {
+      visibility: visible !important;
+    }
+    #print-section {
+      background: white !important;
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      width: 100% !important;
+      box-shadow: none !important;
+      border: none !important;
+    }
+    #print-section > div {
+      box-shadow: none !important;
+      border: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      max-width: 100% !important;
+    }
+    .sales-ficha-print-container {
+      width: 210mm !important;
+      max-width: 210mm !important;
+      margin: 0 auto !important;
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 0 !important;
+      padding: 0 !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    .sales-ficha-print-container.is-double-mode {
+      height: 297mm !important;
+      max-height: 297mm !important;
+      justify-content: space-between !important;
+    }
+    .sales-ficha-print-container.is-single-mode {
+      height: 148.5mm !important;
+      max-height: 148.5mm !important;
+      justify-content: flex-start !important;
+    }
+    .sales-ficha-half {
+      width: 100% !important;
+      box-sizing: border-box !important;
+      padding: 0 4mm !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      flex-shrink: 0 !important;
+    }
+    .is-double-mode .sales-ficha-half {
+      height: 148.5mm !important;
+      max-height: 148.5mm !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      align-items: center !important;
+    }
+    .is-single-mode .sales-ficha-half {
+      height: 148.5mm !important;
+      max-height: 148.5mm !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: flex-start !important;
+      align-items: center !important;
+      padding-top: 4mm !important;
+    }
+    .sales-ficha-print-sheet {
+      width: 100% !important;
+      max-width: 198mm !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      box-sizing: border-box !important;
+      padding: 1.5mm !important;
+      margin: 0 auto !important;
     }
   }
 `;
@@ -250,36 +256,8 @@ export default function PrintSalesOrder({
       const clientNameClean = (order.clientName || 'Cliente').replace(/[^a-zA-Z0-9_-]/g, '_');
       const filename = `Ficha_Venta_${clientNameClean}_${order.orderNo || ''}.pdf`;
 
-      let pdfBlob: Blob;
-
-      // Método 1: Servidor Puppeteer oficial (PDF vectorial nítido con bordes y tipografía exacta)
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-        const response = await fetch('/api/generate-pdf', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            html: element.outerHTML,
-            css: SALES_FICHA_PRINT_CSS,
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          throw new Error('El servidor respondió con código ' + response.status);
-        }
-
-        pdfBlob = await response.blob();
-      } catch (serverErr) {
-        console.warn('Generación de PDF en servidor falló o tardó demasiado, usando motor de respaldo en cliente:', serverErr);
-        // Método 2: Respaldo cliente con contenedor fijo A4 de 800px y estilos forzados
-        pdfBlob = await generatePdfFromElement(element, { filename, marginMm: 0 });
-      }
+      // Generación directa y confiable en cliente (HTML2Canvas + jsPDF)
+      const pdfBlob = await generatePdfFromElement(element, { filename, marginMm: 0 });
 
       if (action === 'download') {
         // Download file to user device (exact original download logic preserved)
@@ -326,9 +304,10 @@ export default function PrintSalesOrder({
       }
     } catch (err: any) {
       console.error('Error al generar el PDF:', err);
-      const userMessage = err?.message?.includes('Execution context') || err?.message?.includes('Protocol') || err?.message?.includes('detached frame')
-        ? 'No se pudo generar el archivo mediante el proceso automatizado. Puede hacer clic en "Imprimir (1/2 Hoja A4)" y elegir la opción "Guardar como PDF".'
-        : (err?.message || 'No se pudo generar el PDF. Por favor reintente.');
+      const isSecurityError = /CORS|seguridad|tainted/i.test(err?.message || '');
+      const userMessage = isSecurityError
+        ? `${err.message} Como alternativa, puede hacer clic en "Imprimir (1/2 Hoja A4)" y elegir la opción "Guardar como PDF".`
+        : (err?.message || 'No se pudo generar el PDF. Puede utilizar el botón "Imprimir (1/2 Hoja A4)" como alternativa.');
       setPdfError(userMessage);
     } finally {
       setIsGeneratingPDF(false);
@@ -435,41 +414,42 @@ export default function PrintSalesOrder({
         >
           {(() => {
             const fichaSheetNode = (
-              <div className="sales-ficha-print-sheet mx-auto bg-white text-black font-sans text-[11px] leading-normal p-3 max-w-[210mm] print:max-w-none">
+              <div className="sales-ficha-print-sheet mx-auto bg-white text-black font-sans text-[10px] leading-tight p-2 max-w-[200mm] print:p-1.5 print:max-w-none">
           
           {/* 1. Title */}
-          <div className="text-center font-bold text-base sm:text-lg text-black mb-1">
-            Ficha de Venta Cliente N°..........................
+          <div className="text-center font-bold text-sm sm:text-base text-black mb-0.5 flex items-baseline justify-center">
+            <span>Ficha de Venta Cliente N°</span>
+            <span className="w-32 border-b border-black ml-1.5" />
           </div>
 
           {/* 2. Top Sub-header */}
-          <div className="flex justify-between items-center text-[11px] mb-1.5 px-0.5 font-normal text-black">
-            <div>
-              <span className="font-normal">Nombre del ejecutor de ventas: </span>
-              <span className="font-bold uppercase ml-1">{order.sellerName || '-'}</span>
+          <div className="flex justify-between items-center text-[10px] mb-1 px-0.5 font-normal text-black gap-2">
+            <div className="flex items-baseline flex-1 min-w-0">
+              <span className="font-normal whitespace-nowrap">Nombre del ejecutor de ventas: </span>
+              <span className="font-bold uppercase ml-1 truncate">{order.sellerName || '-'}</span>
             </div>
-            <div>
-              <span className="font-normal">Fecha: </span>
+            <div className="flex items-baseline shrink-0 min-w-[120px] justify-end">
+              <span className="font-normal whitespace-nowrap">Fecha: </span>
               <span className="font-mono font-bold ml-1">{formatDate(order.date) || '0/01/1900'}</span>
             </div>
           </div>
 
           {/* 3. Items & Info Master Table Grid */}
-          <table className="w-full table-fixed border-collapse border border-black text-[10.5px] mb-2 text-black">
+          <table className="w-full table-fixed border-collapse border border-black text-[9.5px] mb-1 text-black">
             <thead>
-              <tr className="border-b border-black font-bold text-[10px]" style={{ backgroundColor: '#e5e7eb' }}>
-                <th className="border-r border-black py-0 px-1 text-center font-bold w-[10%] align-middle">Código</th>
-                <th className="border-r border-black py-0 px-1 text-center font-bold w-[40%] align-middle">Descripción</th>
-                <th className="border-r border-black py-0 px-1 text-center font-bold w-[11%] leading-tight align-middle">
+              <tr className="border-b border-black font-bold text-[9px]" style={{ backgroundColor: '#e5e7eb' }}>
+                <th className="border-r border-black py-0.5 px-1 text-center font-bold w-[10%] align-middle">Código</th>
+                <th className="border-r border-black py-0.5 px-1 text-center font-bold w-[40%] align-middle">Descripción</th>
+                <th className="border-r border-black py-0.5 px-1 text-center font-bold w-[11%] leading-tight align-middle">
                   Precio<br />Unitario
                 </th>
-                <th className="border-r border-black py-0 px-1 text-center font-bold w-[11%] leading-tight align-middle">
+                <th className="border-r border-black py-0.5 px-1 text-center font-bold w-[11%] leading-tight align-middle">
                   Cantidad<br />solicitada
                 </th>
-                <th className="border-r border-black py-0 px-1 text-center font-bold w-[11%] leading-tight align-middle">
+                <th className="border-r border-black py-0.5 px-1 text-center font-bold w-[11%] leading-tight align-middle">
                   Cantidad<br />despachada
                 </th>
-                <th className="py-0 px-1 text-center font-bold w-[17%] leading-tight align-middle">
+                <th className="py-0.5 px-1 text-center font-bold w-[17%] leading-tight align-middle">
                   Importe<br />total
                 </th>
               </tr>
@@ -478,57 +458,57 @@ export default function PrintSalesOrder({
               {/* Product Rows */}
               {order.items.map((item, idx) => (
                 <tr key={item.id || idx} className="border-b border-black">
-                  <td className="border-r border-black p-1.5 text-center font-mono font-bold align-middle">{item.code || ''}</td>
-                  <td className="border-r border-black p-1.5 font-bold align-middle">{item.description || ''}</td>
-                  <td className="border-r border-black p-1.5 text-right font-mono font-bold align-middle">
+                  <td className="border-r border-black py-0.5 px-1 text-center font-mono font-bold align-middle">{item.code || ''}</td>
+                  <td className="border-r border-black py-0.5 px-1 font-bold align-middle">{item.description || ''}</td>
+                  <td className="border-r border-black py-0.5 px-1 text-right font-mono font-bold align-middle">
                     {item.unitPrice && Number(item.unitPrice) > 0 ? item.unitPrice.toFixed(2) : ''}
                   </td>
-                  <td className="border-r border-black p-1.5 text-right font-mono font-bold align-middle">
+                  <td className="border-r border-black py-0.5 px-1 text-right font-mono font-bold align-middle">
                     {item.requestedQty && Number(item.requestedQty) > 0 ? item.requestedQty : ''}
                   </td>
-                  <td className="border-r border-black p-1.5 text-right font-mono font-bold align-middle">
+                  <td className="border-r border-black py-0.5 px-1 text-right font-mono font-bold align-middle">
                     {item.dispatchedQty && Number(item.dispatchedQty) > 0 ? item.dispatchedQty : ''}
                   </td>
-                  <td className="p-1.5 text-right font-mono font-bold align-middle">
+                  <td className="py-0.5 px-1 text-right font-mono font-bold align-middle">
                     {item.totalAmount && Number(item.totalAmount) > 0 ? item.totalAmount.toFixed(2) : '-'}
                   </td>
                 </tr>
               ))}
 
-              {/* Empty padding rows to guarantee vertical height matching form */}
-              {Array.from({ length: Math.max(0, 3 - order.items.length) }).map((_, i) => (
-                <tr key={`empty-${i}`} className="border-b border-black h-6">
-                  <td className="border-r border-black p-1"></td>
-                  <td className="border-r border-black p-1"></td>
-                  <td className="border-r border-black p-1"></td>
-                  <td className="border-r border-black p-1"></td>
-                  <td className="border-r border-black p-1"></td>
-                  <td className="p-1 text-right font-mono font-bold text-black align-middle">{i === 0 && order.items.length === 0 ? '-' : ''}</td>
+              {/* Empty padding rows if fewer items */}
+              {Array.from({ length: Math.max(0, Math.min(2, 3 - order.items.length)) }).map((_, i) => (
+                <tr key={`empty-${i}`} className="border-b border-black h-5">
+                  <td className="border-r border-black py-0.5 px-1"></td>
+                  <td className="border-r border-black py-0.5 px-1"></td>
+                  <td className="border-r border-black py-0.5 px-1"></td>
+                  <td className="border-r border-black py-0.5 px-1"></td>
+                  <td className="border-r border-black py-0.5 px-1"></td>
+                  <td className="py-0.5 px-1 text-right font-mono font-bold text-black align-middle">{i === 0 && order.items.length === 0 ? '-' : ''}</td>
                 </tr>
               ))}
 
               {/* CLIENTE & TOTAL Row */}
               <tr className="border-b border-black">
-                <td colSpan={4} className="border-r border-black p-1 font-normal align-middle">
+                <td colSpan={4} className="border-r border-black py-0.5 px-1 font-normal align-middle">
                   CLIENTE: <span className="font-bold uppercase ml-1">{order.clientName || ''}</span>
                 </td>
-                <td colSpan={1} className="border-r border-black p-1 text-left font-normal align-middle">
+                <td colSpan={1} className="border-r border-black py-0.5 px-1 text-left font-normal align-middle">
                   TOTAL
                 </td>
-                <td colSpan={1} className="p-1 text-right font-mono font-bold align-middle">
+                <td colSpan={1} className="py-0.5 px-1 text-right font-mono font-bold align-middle">
                   {order.totalAmount && Number(order.totalAmount) > 0 ? `S/. ${formattedTotal}` : ''}
                 </td>
               </tr>
 
               {/* Dirección fiscal & RUC/DNI Row */}
               <tr className="border-b border-black">
-                <td colSpan={1} className="border-r border-black py-0 px-1 font-normal text-left leading-tight align-middle">
+                <td colSpan={1} className="border-r border-black py-0.5 px-1 font-normal text-left leading-tight align-middle">
                   Dirección fiscal
                 </td>
-                <td colSpan={3} className="border-r border-black py-0 px-1 font-bold uppercase align-middle">
+                <td colSpan={3} className="border-r border-black py-0.5 px-1 font-bold uppercase align-middle">
                   {order.fiscalAddress || ''}
                 </td>
-                <td colSpan={2} className="py-0 px-1 font-normal align-middle">
+                <td colSpan={2} className="py-0.5 px-1 font-normal align-middle">
                   RUC/DNI: <span className="font-mono font-bold ml-1">{order.clientRucDni || ''}</span>
                 </td>
               </tr>
@@ -539,7 +519,7 @@ export default function PrintSalesOrder({
                   Contacto de<br />despacho
                 </td>
                 <td colSpan={5} className="p-0 align-middle">
-                  <table className="w-full border-collapse text-[10.5px]">
+                  <table className="w-full border-collapse text-[9.5px]">
                     <tbody>
                       <tr className="border-b border-black">
                         <td className="w-16 border-r border-black py-0.5 px-1 font-normal">Nombre:</td>
@@ -556,42 +536,42 @@ export default function PrintSalesOrder({
 
               {/* Lugar de despacho Row */}
               <tr className="border-b border-black">
-                <td colSpan={1} className="border-r border-black py-0 px-1 text-left font-normal leading-tight align-middle">
+                <td colSpan={1} className="border-r border-black py-0.5 px-1 text-left font-normal leading-tight align-middle">
                   Lugar de despacho
                 </td>
-                <td colSpan={3} className="border-r border-black py-0 px-1 text-left font-bold uppercase align-middle">
+                <td colSpan={3} className="border-r border-black py-0.5 px-1 text-left font-bold uppercase align-middle">
                   {order.dispatchAddress || ''}
                 </td>
-                <td colSpan={1} className="border-r border-black py-0 px-1 text-center font-normal align-middle">
+                <td colSpan={1} className="border-r border-black py-0.5 px-1 text-center font-normal align-middle">
                   Número de piso
                 </td>
-                <td colSpan={1} className="py-0 px-1 text-center font-bold font-mono align-middle">
+                <td colSpan={1} className="py-0.5 px-1 text-center font-bold font-mono align-middle">
                   {order.floorNumber || ''}
                 </td>
               </tr>
 
               {/* Fecha de despacho & Hora de despacho Row */}
               <tr className="border-b border-black">
-                <td colSpan={1} className="border-r border-black py-0 px-1 text-left font-normal leading-tight align-middle">
+                <td colSpan={1} className="border-r border-black py-0.5 px-1 text-left font-normal leading-tight align-middle">
                   Fecha de despacho
                 </td>
-                <td colSpan={1} className="border-r border-black py-0 px-1 text-center font-mono font-bold align-middle">
+                <td colSpan={1} className="border-r border-black py-0.5 px-1 text-center font-mono font-bold align-middle">
                   {formatDate(order.dispatchDate) || ''}
                 </td>
-                <td colSpan={1} className="border-r border-black py-0 px-1 text-center font-normal leading-tight align-middle">
+                <td colSpan={1} className="border-r border-black py-0.5 px-1 text-center font-normal leading-tight align-middle">
                   Hora de despacho
                 </td>
-                <td colSpan={3} className="py-0 px-1 text-center font-bold uppercase align-middle">
+                <td colSpan={3} className="py-0.5 px-1 text-center font-bold uppercase align-middle">
                   {order.dispatchTime || ''}
                 </td>
               </tr>
 
               {/* Forma de pago Row */}
               <tr className="border-b border-black">
-                <td colSpan={1} className="border-r border-black py-0 px-1 text-left font-normal leading-tight align-middle">
+                <td colSpan={1} className="border-r border-black py-0.5 px-1 text-left font-normal leading-tight align-middle">
                   Forma de pago
                 </td>
-                <td colSpan={5} className="py-0 px-1 text-left font-bold uppercase align-middle">
+                <td colSpan={5} className="py-0.5 px-1 text-left font-bold uppercase align-middle">
                   {order.paymentMethod || ''}
                 </td>
               </tr>
@@ -600,8 +580,8 @@ export default function PrintSalesOrder({
               <tr>
                 <td colSpan={6} className="p-0 align-top">
                   <div className="flex w-full">
-                    <div className="w-[36%] border-r border-black p-1.5 align-top">
-                      <div className="space-y-0.5 text-[10.5px]">
+                    <div className="w-[36%] border-r border-black p-1 align-top">
+                      <div className="space-y-0.5 text-[9.5px]">
                         <div>
                           <span className="font-normal">Importe facturado:(S/.)</span>
                           <span className="font-mono font-bold ml-1">{order.billedAmount ? formattedBilled : ''}</span>
@@ -616,8 +596,8 @@ export default function PrintSalesOrder({
                         </div>
                       </div>
                     </div>
-                    <div className="w-[64%] p-1.5 align-top">
-                      <div className="space-y-1 text-[10.5px]">
+                    <div className="w-[64%] p-1 align-top">
+                      <div className="space-y-0.5 text-[9.5px]">
                         <div className="flex items-baseline overflow-hidden w-[58%] min-w-0">
                           <span className="font-normal whitespace-nowrap">Importe facturado:(S/.)</span>
                           <span className="flex-1 border-b border-dotted border-black ml-1 min-w-[10px]" />
@@ -645,47 +625,47 @@ export default function PrintSalesOrder({
           </table>
 
           {/* 4. Observaciones */}
-          <div className="mt-1 px-0.5 text-[10.5px] text-black">
+          <div className="mt-0.5 px-0.5 text-[9.5px] text-black">
             <div className="font-normal">
               Observaciones:
             </div>
-            <div className="min-h-[16px] overflow-hidden whitespace-nowrap">
+            <div className="min-h-[14px] overflow-hidden whitespace-nowrap">
               {order.observations ? (
                 <span className="font-bold uppercase whitespace-pre-wrap">{order.observations}</span>
               ) : (
-                <div className="border-b border-dotted border-black w-full h-3" />
+                <div className="border-b border-dotted border-black w-full h-2.5" />
               )}
             </div>
           </div>
 
           {/* 5. (PARA SER LLENADO POR ALMACÉN) Section & PENDIENTE POR FACTURAR Box */}
-          <div className="px-0.5 text-[10px] mt-1 text-black">
-            <div className="flex w-full items-stretch justify-between gap-3">
+          <div className="px-0.5 text-[9px] mt-0.5 text-black">
+            <div className="flex w-full items-stretch justify-between gap-2">
               {/* Left Column: ALMACÉN section + Bottom dashed line */}
               <div className="flex-1 flex flex-col justify-between">
                 {/* Header */}
-                <div className="font-normal uppercase text-[10px] mb-1">
+                <div className="font-normal uppercase text-[9px] mb-0.5">
                   (PARA SER LLENADO POR ALMACÉN)
                 </div>
 
                 {/* Dealer & Bolívar Grid */}
-                <div className="grid grid-cols-2 gap-3 my-1">
-                  <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2 my-0.5">
+                  <div className="space-y-1">
                     <div className="flex items-baseline overflow-hidden">
                       <span className="font-normal whitespace-nowrap">DEALER:</span>
                       <span className="flex-1 border-b border-dotted border-black ml-1" />
                     </div>
-                    <div className="flex items-baseline overflow-hidden pt-1.5">
+                    <div className="flex items-baseline overflow-hidden pt-0.5">
                       <span className="font-normal whitespace-nowrap"># FACTURA:</span>
                       <span className="flex-1 border-b border-dotted border-black ml-1" />
                     </div>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1">
                     <div className="flex items-baseline overflow-hidden">
                       <span className="font-normal whitespace-nowrap">BOLÍVAR:</span>
                       <span className="flex-1 border-b border-dotted border-black ml-1" />
                     </div>
-                    <div className="flex items-baseline overflow-hidden pt-1.5">
+                    <div className="flex items-baseline overflow-hidden pt-0.5">
                       <span className="font-normal whitespace-nowrap"># FACTURA:</span>
                       <span className="flex-1 border-b border-dotted border-black ml-1" />
                     </div>
@@ -694,8 +674,8 @@ export default function PrintSalesOrder({
               </div>
 
               {/* Right Column: PENDIENTE POR FACTURAR Box */}
-              <div className="border border-black p-2 space-y-2 bg-white w-[30%] min-w-[200px] flex-shrink-0 flex flex-col justify-between">
-                <div className="font-normal text-[10px] uppercase text-left">
+              <div className="border border-black p-1.5 space-y-1 bg-white w-[30%] min-w-[190px] flex-shrink-0 flex flex-col justify-between">
+                <div className="font-normal text-[9px] uppercase text-left">
                   PENDIENTE POR FACTURAR
                 </div>
                 <div className="flex items-baseline overflow-hidden">
@@ -714,15 +694,16 @@ export default function PrintSalesOrder({
 
             return (
               <>
-                {fichaSheetNode}
+                {/* Half 1: Top Part */}
+                <div className="sales-ficha-half w-full flex-1 flex flex-col justify-start items-center p-1 sm:p-2 print:p-0">
+                  {fichaSheetNode}
+                </div>
 
+                {/* Optional Half 2: Bottom Part (Mode 'double') */}
                 {printMode === 'double' && (
-                  <>
-                    {/* Clean separator without text or scissors */}
-                    <div className="sales-ficha-separator my-1 print:my-0" />
-
+                  <div className="sales-ficha-half w-full flex-1 flex flex-col justify-start items-center p-1 sm:p-2 print:p-0">
                     {fichaSheetNode}
-                  </>
+                  </div>
                 )}
               </>
             );

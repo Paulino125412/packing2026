@@ -8,8 +8,9 @@ import { exportInventoryToExcel } from '../utils/excelExport';
 import AlertBanner from './AlertBanner';
 import { useToast } from '../context/ToastContext';
 import { analyzeSystemError } from '../lib/diagnostics';
-import PrintRollLabelsModal, { PrintableRollLabel } from './PrintRollLabelsModal';
-import BarcodeScannerModal from './BarcodeScannerModal';
+import type { PrintableRollLabel } from './PrintRollLabelsModal';
+const PrintRollLabelsModal = React.lazy(() => import('./PrintRollLabelsModal'));
+const BarcodeScannerModal = React.lazy(() => import('./BarcodeScannerModal'));
 
 interface InventoryManagerProps {
   inventory: RollItem[];
@@ -1584,25 +1585,29 @@ export default function InventoryManager({
 
       {/* Roll Labels Printing Modal (Thermal & A4 Stickers with Barcode + QR) */}
       {isPrintLabelsOpen && (
-        <PrintRollLabelsModal
-          rolls={rollsToPrint}
-          onClose={() => setIsPrintLabelsOpen(false)}
-        />
+        <React.Suspense fallback={null}>
+          <PrintRollLabelsModal
+            rolls={rollsToPrint}
+            onClose={() => setIsPrintLabelsOpen(false)}
+          />
+        </React.Suspense>
       )}
 
       {/* Barcode / QR Scanner Modal */}
       {isScannerOpen && (
-        <BarcodeScannerModal
-          isOpen={isScannerOpen}
-          onClose={() => setIsScannerOpen(false)}
-          onScanResult={(scannedItem) => {
-            if (scannedItem?.rollNumber) {
-              setSearchTerm(scannedItem.rollNumber);
-              toast.success(`Rollo detectado: ${scannedItem.rollNumber}`);
-            }
-            setIsScannerOpen(false);
-          }}
-        />
+        <React.Suspense fallback={null}>
+          <BarcodeScannerModal
+            isOpen={isScannerOpen}
+            onClose={() => setIsScannerOpen(false)}
+            onScanResult={(scannedItem) => {
+              if (scannedItem?.rollNumber) {
+                setSearchTerm(scannedItem.rollNumber);
+                toast.success(`Rollo detectado: ${scannedItem.rollNumber}`);
+              }
+              setIsScannerOpen(false);
+            }}
+          />
+        </React.Suspense>
       )}
 
     </div>

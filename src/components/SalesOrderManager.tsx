@@ -1772,20 +1772,24 @@ export default function SalesOrderManager({
 
       {/* PRINT MODAL OVERLAY */}
       {printOrder && (
-        <PrintSalesOrder
-          order={printOrder}
-          clients={clients}
-          sellers={sellers}
-          articles={articles}
-          onClose={() => setPrintOrder(null)}
-        />
+        <React.Suspense fallback={null}>
+          <PrintSalesOrder
+            order={printOrder}
+            clients={clients}
+            sellers={sellers}
+            articles={articles}
+            onClose={() => setPrintOrder(null)}
+          />
+        </React.Suspense>
       )}
 
       {/* BLANK SALES ORDER FICHA MODAL (MANUAL FILLING TEMPLATE) */}
       {showBlankFichaModal && (
-        <PrintBlankSalesOrderModal
-          onClose={() => setShowBlankFichaModal(false)}
-        />
+        <React.Suspense fallback={null}>
+          <PrintBlankSalesOrderModal
+            onClose={() => setShowBlankFichaModal(false)}
+          />
+        </React.Suspense>
       )}
 
       {/* DELETE CONFIRMATION MODAL */}

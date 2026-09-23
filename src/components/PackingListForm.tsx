@@ -9,7 +9,7 @@ import { resolveColumnsForText, parseSanitizedNumeric } from './packing-list-for
 import ClientSellerSelector from './packing-list-form/ClientSellerSelector';
 import ArticleGroupSection from './packing-list-form/ArticleGroupSection';
 import AlertBanner from './AlertBanner';
-import PrintRestingGuideModal from './PrintRestingGuideModal';
+const PrintRestingGuideModal = React.lazy(() => import('./PrintRestingGuideModal'));
 import { useToast } from '../context/ToastContext';
 import { analyzeSystemError } from '../lib/diagnostics';
 import { isSanJacintoProvider, normalizeSanJacintoTono, isValidSanJacintoTono } from '../utils/sanJacintoRules';
@@ -2227,9 +2227,11 @@ export default function PackingListForm({
 
       {/* TECHNICAL RESTING GUIDE PRINT MODAL */}
       {showRestingGuide && (
-        <PrintRestingGuideModal
-          onClose={() => setShowRestingGuide(false)}
-        />
+        <React.Suspense fallback={null}>
+          <PrintRestingGuideModal
+            onClose={() => setShowRestingGuide(false)}
+          />
+        </React.Suspense>
       )}
     </div>
   );

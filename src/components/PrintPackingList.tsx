@@ -1317,6 +1317,7 @@ function PaginatedSinglePrintPage({
               alt="Juditex" 
               className={`${isCompact ? 'h-14' : 'h-16'} w-auto object-contain print:opacity-100`} 
               referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
             />
           </div>
         </div>
@@ -1813,6 +1814,7 @@ function GuiaRemisionPrintSheet({
               alt="Juditex" 
               className="h-32 sm:h-36 w-auto shrink-0 object-contain print:opacity-100 max-h-[140px]" 
               referrerPolicy="no-referrer"
+              crossOrigin="anonymous"
             />
             <div className="space-y-1">
               <h1 className="text-[#1B5E20] text-lg font-black tracking-tight leading-none uppercase">DEALER TEXTIL SRL</h1>

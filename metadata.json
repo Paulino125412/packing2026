@@ -1,5 +1,5 @@
 {
-  "name": "Remix BUSINESS SUITE",
+  "name": "BUSINESS SUITE",
   "description": "Sistema de gestión empresarial para packing lists con control de inventario de rollos, despachos de cortes, trazabilidad de movimientos y reportes en PDF.",
   "requestFramePermissions": [
     "camera"

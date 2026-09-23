@@ -1,65 +1,78 @@
 import express from "express";
 import path from "path";
-import fs from "fs";
-import os from "os";
 import { createServer as createViteServer } from "vite";
-import puppeteer, { Browser } from "puppeteer";
-import puppeteerCore from "puppeteer-core";
-import * as chromiumModule from "@sparticuz/chromium";
-
-// Defensive resolver to unwrap @sparticuz/chromium regardless of bundler/ESM/CJS wrapping
-function resolveChromium(mod: any): any {
-  let curr = mod;
-  for (let i = 0; i < 5; i++) {
-    if (!curr) break;
-    if (typeof curr.executablePath === 'function') {
-      return curr;
-    }
-    if (curr.default) {
-      curr = curr.default;
-    } else {
-      break;
-    }
-  }
-  return curr;
-}
-
-const chromium: any = resolveChromium(chromiumModule);
 
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: '10mb' }));
-
-// Sentry Tunnel Route: Bypasses browser AdBlockers and Brave Shields
-app.post("/api/sentry-tunnel", express.raw({ type: "*/*", limit: "5mb" }), async (req, res) => {
+// Sentry Tunnel Route: Bypasses browser AdBlockers and Brave Shields.
+// MUST be defined before global express.json() so express.raw receives the raw unparsed stream.
+app.post("/api/sentry-tunnel", express.raw({ type: "*/*", limit: "10mb" }), async (req, res) => {
   try {
-    const envelope = req.body;
-    const envelopeString = envelope.toString("utf8");
-    const piece = envelopeString.split("\n")[0];
-    const header = JSON.parse(piece);
-    const dsn = new URL(header.dsn);
-    const projectId = dsn.pathname.replace("/", "");
+    let rawEnvelope = "";
+    let envelopeBuffer: Buffer;
+
+    if (Buffer.isBuffer(req.body)) {
+      envelopeBuffer = req.body;
+      rawEnvelope = req.body.toString("utf8");
+    } else if (typeof req.body === "string") {
+      rawEnvelope = req.body;
+      envelopeBuffer = Buffer.from(req.body, "utf8");
+    } else if (req.body && typeof req.body === "object") {
+      rawEnvelope = JSON.stringify(req.body);
+      envelopeBuffer = Buffer.from(rawEnvelope, "utf8");
+    } else {
+      return res.status(400).json({ error: "Empty or invalid envelope payload" });
+    }
+
+    if (!rawEnvelope || rawEnvelope.trim() === "") {
+      return res.status(400).json({ error: "Empty envelope" });
+    }
+
+    const firstLine = rawEnvelope.split("\n")[0].trim();
+    let header: any = {};
+    try {
+      header = JSON.parse(firstLine);
+    } catch {
+      if (req.body && typeof req.body === "object") {
+        header = req.body;
+      }
+    }
+
+    const fallbackDsn = process.env.VITE_SENTRY_DSN || "https://da0301551a812032c76704b5e10c7090@o4511997556097024.ingest.us.sentry.io/4512040508588032";
+    const dsnString = header?.dsn || fallbackDsn;
+
+    let dsn: URL;
+    try {
+      dsn = new URL(dsnString);
+    } catch {
+      return res.status(400).json({ error: "Invalid Sentry DSN" });
+    }
 
     if (!dsn.hostname.endsWith(".sentry.io")) {
       return res.status(403).json({ error: "Invalid DSN host" });
     }
 
+    const projectId = dsn.pathname.replace(/^\//, "");
     const sentryUrl = `https://${dsn.hostname}/api/${projectId}/envelope/`;
+
     const response = await fetch(sentryUrl, {
       method: "POST",
-      body: envelope,
+      body: envelopeBuffer,
       headers: {
         "Content-Type": "application/x-sentry-envelope",
       },
     });
 
-    res.status(response.status).send(await response.text());
+    const responseText = await response.text();
+    res.status(response.status).send(responseText);
   } catch (e: any) {
-    console.error("Error en Sentry Tunnel:", e);
+    console.error("Error en Sentry Tunnel:", e?.message || e);
     res.status(500).json({ error: e?.message || "Tunnel error" });
   }
 });
+
+app.use(express.json({ limit: '10mb' }));
 
 // Standard health check route for container & proxy readiness
 app.get("/api/health", (req, res) => {
@@ -605,266 +618,6 @@ app.get("/api/sunat/:number", async (req, res) => {
   });
 });
 
-// Helper to find Chrome executable in container environment or local cache
-function findChromeExecutable(): string | undefined {
-  if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
-    return process.env.PUPPETEER_EXECUTABLE_PATH;
-  }
-
-  // Common paths in container or Linux systems
-  const candidatePaths = [
-    '/tmp/puppeteer-chrome/linux-155.0.8043.0/chrome-linux64/chrome',
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium'
-  ];
-  for (const p of candidatePaths) {
-    if (fs.existsSync(p)) return p;
-  }
-
-  // Search inside local chrome directory if downloaded by puppeteer browsers
-  const localChromeDir = path.join(process.cwd(), 'chrome');
-  if (fs.existsSync(localChromeDir)) {
-    const findBinary = (dir: string): string | null => {
-      try {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        for (const entry of entries) {
-          const fullPath = path.join(dir, entry.name);
-          if (entry.isDirectory()) {
-            const found = findBinary(fullPath);
-            if (found) return found;
-          } else if (entry.isFile() && (entry.name === 'chrome' || entry.name === 'chromium') && !entry.name.endsWith('.so')) {
-            return fullPath;
-          }
-        }
-      } catch {
-        return null;
-      }
-      return null;
-    };
-    const found = findBinary(localChromeDir);
-    if (found) return found;
-  }
-
-  return undefined;
-}
-
-// Ensures native shared libraries packaged with @sparticuz/chromium (e.g. libnspr4.so, libnss3.so)
-// are extracted and accessible in serverless/container production environments like Cloud Run
-async function ensureChromiumLibraries(): Promise<string> {
-  const al2023LibDir = path.join(os.tmpdir(), "al2023", "lib");
-  const nsprPath = path.join(al2023LibDir, "libnspr4.so");
-
-  if (!fs.existsSync(nsprPath)) {
-    const al2023Dir = path.join(os.tmpdir(), "al2023");
-    if (fs.existsSync(al2023Dir)) {
-      try {
-        fs.rmSync(al2023Dir, { recursive: true, force: true });
-      } catch {}
-    }
-
-    const archiveCandidates = [
-      path.join(process.cwd(), "node_modules/@sparticuz/chromium/bin/al2023.tar.br"),
-      path.resolve(__dirname, "node_modules/@sparticuz/chromium/bin/al2023.tar.br"),
-    ];
-    try {
-      const pkgPath = require.resolve("@sparticuz/chromium/package.json");
-      archiveCandidates.unshift(path.join(path.dirname(pkgPath), "bin/al2023.tar.br"));
-    } catch {}
-
-    for (const archivePath of archiveCandidates) {
-      if (fs.existsSync(archivePath)) {
-        const inflateFn = (chromiumModule as any).inflate || (chromium as any).inflate;
-        if (typeof inflateFn === "function") {
-          try {
-            await inflateFn(archivePath);
-            break;
-          } catch (e) {
-            console.warn("Failed inflating al2023 archive from", archivePath, e);
-          }
-        }
-      }
-    }
-  }
-
-  const setupFn = (chromiumModule as any).setupLambdaEnvironment || (chromium as any).setupLambdaEnvironment;
-  if (typeof setupFn === "function") {
-    try {
-      setupFn(al2023LibDir);
-    } catch {}
-  } else {
-    process.env["FONTCONFIG_PATH"] = process.env["FONTCONFIG_PATH"] || path.join(os.tmpdir(), "fonts");
-    process.env["HOME"] = process.env["HOME"] || os.tmpdir();
-    const curLd = process.env["LD_LIBRARY_PATH"] || "";
-    if (!curLd.includes(al2023LibDir)) {
-      process.env["LD_LIBRARY_PATH"] = curLd ? `${al2023LibDir}:${curLd}` : al2023LibDir;
-    }
-  }
-
-  return al2023LibDir;
-}
-
-// Spawns a dedicated, isolated browser instance per PDF job to avoid frame detachment
-// and zombie socket issues caused by container CPU pausing in serverless Cloud Run
-async function createBrowserInstance(): Promise<any> {
-  if (process.env.NODE_ENV === "production") {
-    try {
-      const activeChromium = resolveChromium(chromium);
-      const al2023LibDir = await ensureChromiumLibraries();
-      const execPath = await activeChromium.executablePath();
-      const ldPath = process.env.LD_LIBRARY_PATH || al2023LibDir;
-
-      // Filter out --single-process to prevent renderer crash from destroying the whole browser session
-      const baseArgs = (activeChromium.args || []).filter((a: string) => a !== '--single-process');
-      const prodArgs = Array.from(new Set([
-        ...baseArgs,
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--font-render-hinting=none',
-      ]));
-
-      return await puppeteerCore.launch({
-        args: prodArgs,
-        defaultViewport: activeChromium.defaultViewport,
-        executablePath: execPath,
-        headless: activeChromium.headless,
-        env: {
-          ...process.env,
-          LD_LIBRARY_PATH: ldPath,
-        },
-      });
-    } catch (prodLaunchErr) {
-      console.warn('Production puppeteer-core launch failed, trying standard puppeteer fallback:', prodLaunchErr);
-      const executablePath = findChromeExecutable();
-      const fallbackOptions: any = {
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu',
-          '--font-render-hinting=none'
-        ]
-      };
-      if (executablePath) {
-        fallbackOptions.executablePath = executablePath;
-      }
-      return await puppeteer.launch(fallbackOptions);
-    }
-  } else {
-    const executablePath = findChromeExecutable();
-    const launchOptions: any = {
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--font-render-hinting=none'
-      ]
-    };
-    if (executablePath) {
-      launchOptions.executablePath = executablePath;
-    }
-    return await puppeteer.launch(launchOptions);
-  }
-}
-
-async function renderPdf(fullHtml: string): Promise<Buffer> {
-  const browser = await createBrowserInstance();
-  try {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 900, height: 1400 });
-
-    // Use domcontentloaded for fast, reliable injection without frame detachment
-    await page.setContent(fullHtml, { waitUntil: 'domcontentloaded', timeout: 20000 });
-
-    // Short pause for CSS rendering without evaluating inside frame context
-    await new Promise((resolve) => setTimeout(resolve, 300));
-
-    const pdfBuffer = await page.pdf({
-      printBackground: true,
-      preferCSSPageSize: true,
-      timeout: 20000
-    });
-
-    return Buffer.from(pdfBuffer);
-  } finally {
-    try {
-      await browser.close();
-    } catch (closeErr) {
-      console.warn("Error closing browser instance:", closeErr);
-    }
-  }
-}
-
-// PDF Generation Endpoint via Server-side Headless Puppeteer
-app.post("/api/generate-pdf", async (req, res) => {
-  const { html, css } = req.body;
-  console.log('[PDF DEBUG] html length:', html?.length || 0, 'css length:', css?.length || 0);
-
-  if (!html || typeof html !== 'string' || html.length > 500_000) {
-    return res.status(400).json({ error: 'HTML inválido o demasiado grande' });
-  }
-  if (css && (typeof css !== 'string' || css.length > 500_000)) {
-    return res.status(400).json({ error: 'CSS inválido o demasiado grande' });
-  }
-
-  const fullHtml = `<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <style>
-    ${css || ''}
-    #print-section, #print-section *, .sales-ficha-print-sheet, .sales-ficha-print-sheet * {
-      visibility: visible !important;
-    }
-  </style>
-</head>
-<body>
-  <div id="print-section">
-    ${html}
-  </div>
-</body>
-</html>`;
-
-  let lastError: any = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const pdfBuffer = await renderPdf(fullHtml);
-      res.set({
-        'Content-Type': 'application/pdf',
-        'Content-Length': pdfBuffer.length.toString(),
-        'Content-Disposition': 'attachment; filename="document.pdf"'
-      });
-      return res.send(pdfBuffer);
-    } catch (error: any) {
-      lastError = error;
-      console.warn(`PDF generation attempt ${attempt} failed:`, error?.message || error);
-      if (attempt === 1) {
-        await new Promise((resolve) => setTimeout(resolve, 400));
-      }
-    }
-  }
-
-  console.error("Puppeteer PDF generation error:", lastError);
-  const isTimeout = lastError?.name === 'TimeoutError' || /timeout/i.test(lastError?.message || '');
-  return res.status(isTimeout ? 504 : 500).json({
-    error: isTimeout
-      ? "La generación del PDF tardó demasiado y se canceló. Intente nuevamente."
-      : "Error al generar el PDF en el servidor",
-    details: lastError?.message || String(lastError)
-  });
-});
-
 // Server startup
 if (process.env.NODE_ENV !== "production") {
   startDevServer();
@@ -919,7 +672,12 @@ async function startDevServer() {
 
 function startProdServer() {
   const distPath = path.join(process.cwd(), 'dist');
-  app.use(express.static(distPath));
+  app.use(express.static(distPath, {
+    setHeaders: (res) => {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    }
+  }));
   app.get('*', (req, res) => {
     res.sendFile(path.join(distPath, 'index.html'));
   });

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Printer, X, FileText, FileDown } from 'lucide-react';
+import AlertBanner from './AlertBanner';
 import { generatePdfFromElement } from '../utils/generatePdfClient';
 
 interface PrintBlankSalesOrderModalProps {
@@ -10,97 +11,10 @@ export const BLANK_SALES_FICHA_PRINT_CSS = `
   * {
     box-sizing: border-box !important;
   }
-  @page {
-    size: 210mm 297mm;
-    margin: 0;
-  }
-  html, body {
-    background: #ffffff !important;
-    background-color: #ffffff !important;
-    color: #000000 !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    width: 210mm !important;
-    height: 297mm !important;
-    overflow: hidden !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-  }
-  body * {
-    visibility: hidden !important;
-  }
-  #blank-sales-order-modal,
-  #blank-sales-order-modal *,
-  #blank-sales-ficha-print-area,
-  #blank-sales-ficha-print-area *,
-  #print-section,
-  #print-section * {
-    visibility: visible !important;
-  }
-  #blank-sales-order-modal {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    background: #ffffff !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    display: block !important;
-  }
-  #blank-sales-ficha-print-area {
-    box-shadow: none !important;
-    margin: 0 auto !important;
-    width: 210mm !important;
-    max-width: 210mm !important;
-    background-color: #ffffff !important;
-    display: flex !important;
-    flex-direction: column !important;
-    gap: 0 !important;
-    padding: 0 !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-  }
-  #blank-sales-ficha-print-area.is-double-mode {
-    height: 297mm !important;
-    max-height: 297mm !important;
-    justify-content: space-between !important;
-  }
-  #blank-sales-ficha-print-area.is-single-mode {
-    height: 148.5mm !important;
-    max-height: 148.5mm !important;
-    justify-content: flex-start !important;
-  }
-  .blank-ficha-half {
-    width: 100% !important;
-    box-sizing: border-box !important;
-    padding: 0 4mm !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
-    flex-shrink: 0 !important;
-  }
-  .is-double-mode .blank-ficha-half {
-    height: 148.5mm !important;
-    max-height: 148.5mm !important;
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: center !important;
-    align-items: center !important;
-  }
-  .is-single-mode .blank-ficha-half {
-    height: 148.5mm !important;
-    max-height: 148.5mm !important;
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: flex-start !important;
-    align-items: center !important;
-    padding-top: 5mm !important;
-  }
   .blank-ficha-card {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
     width: 100% !important;
     max-width: 198mm !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
     box-sizing: border-box !important;
     padding: 1.5mm !important;
     margin: 0 auto !important;
@@ -130,9 +44,105 @@ export const BLANK_SALES_FICHA_PRINT_CSS = `
     color: #000000 !important;
     line-height: 1.3 !important;
   }
+  .blank-ficha-half {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+  }
+
   @media print {
+    @page {
+      size: 210mm 297mm;
+      margin: 0;
+    }
     html, body {
+      background: #ffffff !important;
+      background-color: #ffffff !important;
+      color: #000000 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 210mm !important;
+      height: 297mm !important;
       overflow: hidden !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body * {
+      visibility: hidden !important;
+    }
+    #blank-sales-order-modal,
+    #blank-sales-order-modal *,
+    #blank-sales-ficha-print-area,
+    #blank-sales-ficha-print-area *,
+    #print-section,
+    #print-section * {
+      visibility: visible !important;
+    }
+    #blank-sales-order-modal {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: 100% !important;
+      background: #ffffff !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      display: block !important;
+    }
+    #blank-sales-ficha-print-area {
+      box-shadow: none !important;
+      margin: 0 auto !important;
+      width: 210mm !important;
+      max-width: 210mm !important;
+      background-color: #ffffff !important;
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 0 !important;
+      padding: 0 !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+    }
+    #blank-sales-ficha-print-area.is-double-mode {
+      height: 297mm !important;
+      max-height: 297mm !important;
+      justify-content: space-between !important;
+    }
+    #blank-sales-ficha-print-area.is-single-mode {
+      height: 148.5mm !important;
+      max-height: 148.5mm !important;
+      justify-content: flex-start !important;
+    }
+    .blank-ficha-half {
+      width: 100% !important;
+      box-sizing: border-box !important;
+      padding: 0 4mm !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      flex-shrink: 0 !important;
+    }
+    .is-double-mode .blank-ficha-half {
+      height: 148.5mm !important;
+      max-height: 148.5mm !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      align-items: center !important;
+    }
+    .is-single-mode .blank-ficha-half {
+      height: 148.5mm !important;
+      max-height: 148.5mm !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: flex-start !important;
+      align-items: center !important;
+      padding-top: 4mm !important;
+    }
+    .blank-ficha-card {
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
     }
   }
 `;
@@ -142,6 +152,7 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
   //       'double' = 2 Fichas (Superior e Inferior / A4 Completa)
   const [printMode, setPrintMode] = useState<'single' | 'double'>('double');
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const handlePrint = () => {
     window.print();
@@ -152,34 +163,12 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
     if (!element) return;
 
     try {
+      setPdfError(null);
       setIsGeneratingPDF(true);
       const filename = `Ficha_de_Venta_en_Blanco_${printMode === 'double' ? '2_Partes_A4' : 'Parte_Superior'}.pdf`;
 
-      // Try server Puppeteer first
-      let pdfBlob: Blob;
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-        const response = await fetch('/api/generate-pdf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            html: element.outerHTML,
-            css: BLANK_SALES_FICHA_PRINT_CSS,
-          }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        if (!response.ok) {
-          throw new Error('Código ' + response.status);
-        }
-        pdfBlob = await response.blob();
-      } catch (err) {
-        console.warn('Fallback a generador de cliente:', err);
-        pdfBlob = await generatePdfFromElement(element, { filename, marginMm: 0 });
-      }
+      // Generación directa y confiable en cliente (HTML2Canvas + jsPDF)
+      const pdfBlob = await generatePdfFromElement(element, { filename, marginMm: 0 });
 
       const blobUrl = URL.createObjectURL(pdfBlob);
       const downloadLink = document.createElement('a');
@@ -189,10 +178,13 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
       downloadLink.click();
       document.body.removeChild(downloadLink);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error al generar PDF:', err);
-      // Fallback to native print dialog
-      window.print();
+      const isSecurityError = /CORS|seguridad|tainted/i.test(err?.message || '');
+      const userMessage = isSecurityError
+        ? `${err.message} Como alternativa, puede hacer clic en "Imprimir A4" y elegir "Guardar como PDF".`
+        : (err?.message || 'No se pudo generar el archivo PDF. Puede usar el botón "Imprimir A4" para guardarlo como PDF.');
+      setPdfError(userMessage);
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -453,78 +445,88 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
       className="fixed inset-0 bg-black/75 z-50 flex flex-col items-center justify-start overflow-y-auto p-2 sm:p-4 print:p-0 print:bg-white print:overflow-visible"
     >
       {/* Screen Control Bar (Hidden when printing) */}
-      <div className="w-full max-w-4xl bg-app-surface text-app-text border border-app-border rounded-t-xl p-3 sm:p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg no-print print:hidden">
-        <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-app-primary/10 border border-app-primary/20 flex items-center justify-center text-app-primary">
-            <FileText size={18} />
+      <div className="w-full max-w-4xl bg-app-surface text-app-text border border-app-border rounded-t-xl p-3 sm:p-4 flex flex-col gap-3 shadow-lg no-print print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-lg bg-app-primary/10 border border-app-primary/20 flex items-center justify-center text-app-primary">
+              <FileText size={18} />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm text-app-text">Ficha de Venta en Blanco</h3>
+              <p className="text-[11px] text-app-text/60">Formato listo para impresión y llenado manual a lapicero</p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-bold text-sm text-app-text">Ficha de Venta en Blanco</h3>
-            <p className="text-[11px] text-app-text/60">Formato listo para impresión y llenado manual a lapicero</p>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Mode Selector: 1 Copia (Parte Superior) vs 2 Copias (Superior e Inferior) */}
+            <div className="flex items-center bg-app-bg p-0.5 rounded-lg border border-app-border text-xs">
+              <button
+                type="button"
+                onClick={() => setPrintMode('single')}
+                className={`px-3 py-1.5 rounded-md transition font-medium cursor-pointer ${
+                  printMode === 'single'
+                    ? 'bg-app-primary text-white font-bold shadow-xs'
+                    : 'text-app-text/70 hover:text-app-text'
+                }`}
+                title="Imprimir únicamente en la parte superior (1/2 Hoja A4)"
+              >
+                1 Copia (Parte Superior)
+              </button>
+              <button
+                type="button"
+                onClick={() => setPrintMode('double')}
+                className={`px-3 py-1.5 rounded-md transition font-medium cursor-pointer ${
+                  printMode === 'double'
+                    ? 'bg-app-primary text-white font-bold shadow-xs'
+                    : 'text-app-text/70 hover:text-app-text'
+                }`}
+                title="Imprimir dos fichas en una sola hoja A4 (Superior e Inferior)"
+              >
+                2 Copias (Superior e Inferior)
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={isGeneratingPDF}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+              title="Descargar Ficha en blanco en PDF"
+              id="btn-download-pdf-blank-order"
+            >
+              <FileDown size={14} />
+              {isGeneratingPDF ? 'Generando...' : 'Descargar PDF'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrint}
+              className="px-4 py-1.5 bg-app-primary hover:bg-app-primary/90 text-white font-bold text-xs rounded flex items-center gap-1.5 transition shadow-xs cursor-pointer uppercase tracking-wider"
+              id="btn-print-blank-order-action"
+            >
+              <Printer size={14} />
+              Imprimir A4
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 text-app-text/60 hover:text-app-text hover:bg-app-bg rounded transition cursor-pointer border border-app-border"
+              title="Cerrar"
+              id="btn-close-blank-order-modal"
+            >
+              <X size={16} />
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Mode Selector: 1 Copia (Parte Superior) vs 2 Copias (Superior e Inferior) */}
-          <div className="flex items-center bg-app-bg p-0.5 rounded-lg border border-app-border text-xs">
-            <button
-              type="button"
-              onClick={() => setPrintMode('single')}
-              className={`px-3 py-1.5 rounded-md transition font-medium cursor-pointer ${
-                printMode === 'single'
-                  ? 'bg-app-primary text-white font-bold shadow-xs'
-                  : 'text-app-text/70 hover:text-app-text'
-              }`}
-              title="Imprimir únicamente en la parte superior (1/2 Hoja A4)"
-            >
-              1 Copia (Parte Superior)
-            </button>
-            <button
-              type="button"
-              onClick={() => setPrintMode('double')}
-              className={`px-3 py-1.5 rounded-md transition font-medium cursor-pointer ${
-                printMode === 'double'
-                  ? 'bg-app-primary text-white font-bold shadow-xs'
-                  : 'text-app-text/70 hover:text-app-text'
-              }`}
-              title="Imprimir dos fichas en una sola hoja A4 (Superior e Inferior)"
-            >
-              2 Copias (Superior e Inferior)
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleDownloadPdf}
-            disabled={isGeneratingPDF}
-            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
-            title="Descargar Ficha en blanco en PDF"
-            id="btn-download-pdf-blank-order"
-          >
-            <FileDown size={14} />
-            {isGeneratingPDF ? 'Generando...' : 'Descargar PDF'}
-          </button>
-
-          <button
-            type="button"
-            onClick={handlePrint}
-            className="px-4 py-1.5 bg-app-primary hover:bg-app-primary/90 text-white font-bold text-xs rounded flex items-center gap-1.5 transition shadow-xs cursor-pointer uppercase tracking-wider"
-            id="btn-print-blank-order-action"
-          >
-            <Printer size={14} />
-            Imprimir A4
-          </button>
-
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-app-text/60 hover:text-app-text hover:bg-app-bg rounded transition cursor-pointer border border-app-border"
-            title="Cerrar"
-            id="btn-close-blank-order-modal"
-          >
-            <X size={16} />
-          </button>
-        </div>
+        {pdfError && (
+          <AlertBanner
+            type="error"
+            message={pdfError}
+            onClose={() => setPdfError(null)}
+          />
+        )}
       </div>
 
       {/* Printable Sheet Container (Simulates A4 Portrait Sheet) */}
