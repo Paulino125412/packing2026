@@ -159,6 +159,7 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
   };
 
   const handleDownloadPdf = async () => {
+    if (isGeneratingPDF) return;
     const element = document.querySelector('#blank-sales-ficha-print-area') as HTMLElement;
     if (!element) return;
 
@@ -168,7 +169,7 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
       const filename = `Ficha_de_Venta_en_Blanco_${printMode === 'double' ? '2_Partes_A4' : 'Parte_Superior'}.pdf`;
 
       // Generación directa y confiable en cliente (HTML2Canvas + jsPDF)
-      const pdfBlob = await generatePdfFromElement(element, { filename, marginMm: 0 });
+      const pdfBlob = await generatePdfFromElement(element, { filename, marginMm: 4 });
 
       const blobUrl = URL.createObjectURL(pdfBlob);
       const downloadLink = document.createElement('a');
@@ -177,7 +178,11 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
       document.body.appendChild(downloadLink);
       downloadLink.click();
       document.body.removeChild(downloadLink);
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(blobUrl);
+        } catch {}
+      }, 45000);
     } catch (err: any) {
       console.error('Error al generar PDF:', err);
       const isSecurityError = /CORS|seguridad|tainted/i.test(err?.message || '');
@@ -547,9 +552,20 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
 
           {/* Optional Half 2: Bottom Part (Mode 'double') */}
           {printMode === 'double' && (
-            <div className="blank-ficha-half w-full flex-1 flex flex-col justify-center items-center p-2 print:p-0">
-              <BlankFichaCard />
-            </div>
+            <>
+              {/* Guía de corte en el centro exacto de la hoja A4 */}
+              <div className="w-full flex items-center justify-center my-0.5 select-none print:my-0">
+                <div className="flex-1 border-b border-dashed border-gray-400 print:border-black" />
+                <span className="px-2.5 text-[8.5px] font-mono text-gray-500 print:text-black uppercase tracking-widest flex items-center gap-1">
+                  ✂ corte aquí
+                </span>
+                <div className="flex-1 border-b border-dashed border-gray-400 print:border-black" />
+              </div>
+
+              <div className="blank-ficha-half w-full flex-1 flex flex-col justify-center items-center p-2 print:p-0">
+                <BlankFichaCard />
+              </div>
+            </>
           )}
         </div>
       </div>

@@ -164,9 +164,10 @@ export async function generatePdfFromElement(
       width: 100% !important;
       display: flex !important;
       flex-direction: column !important;
-      justify-content: flex-start !important;
+      justify-content: center !important;
       align-items: center !important;
       box-sizing: border-box !important;
+      padding: 2px 6px !important;
     }
   `;
   wrapper.className = 'pdf-render-wrapper';
@@ -194,6 +195,7 @@ export async function generatePdfFromElement(
   // Handle double-mode half-sheet symmetry if present
   const halves = clone.querySelectorAll<HTMLElement>('.blank-ficha-half, .sales-ficha-half');
   if (halves.length === 2) {
+    // 800px width at A4 ratio (1:1.414) corresponds to 1131px height
     clone.style.height = '1131px';
     clone.style.minHeight = '1131px';
     clone.style.maxHeight = '1131px';
@@ -202,9 +204,9 @@ export async function generatePdfFromElement(
     clone.style.justifyContent = 'space-between';
     halves.forEach((half) => {
       half.style.width = '100%';
-      half.style.height = '565.5px';
-      half.style.minHeight = '565.5px';
-      half.style.maxHeight = '565.5px';
+      half.style.height = '545px';
+      half.style.minHeight = '545px';
+      half.style.maxHeight = '545px';
       half.style.display = 'flex';
       half.style.flexDirection = 'column';
       half.style.justifyContent = 'center';
@@ -229,10 +231,12 @@ export async function generatePdfFromElement(
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
 
+  let canvas: HTMLCanvasElement | null = null;
+
   try {
     // Render element to high-resolution canvas using html2canvas-pro
     // allowTaint MUST be false so canvas.toDataURL() never throws SecurityError
-    const canvas = await html2canvas(clone, {
+    canvas = await html2canvas(clone, {
       scale,
       useCORS: true,
       allowTaint: false,
@@ -240,12 +244,12 @@ export async function generatePdfFromElement(
       backgroundColor: '#ffffff',
       windowWidth: 800,
       width: 800,
-      imageTimeout: 15000,
+      imageTimeout: 10000,
     });
 
     let imgData: string;
     try {
-      imgData = canvas.toDataURL('image/jpeg', 0.98);
+      imgData = canvas.toDataURL('image/jpeg', 0.96);
     } catch (exportErr: any) {
       const isSecurityError =
         exportErr?.name === 'SecurityError' ||
@@ -268,46 +272,72 @@ export async function generatePdfFromElement(
       orientation: 'portrait',
       unit: 'mm',
       format: 'a4',
+      compress: true,
     });
 
     const pageWidth = 210;
     const pageHeight = 297;
-    const contentWidth = pageWidth - (marginMm * 2);
+    // Safe printer margin: 5mm avoids cutting table lines on standard office printers
+    const effectiveMargin = marginMm > 0 ? marginMm : 4;
+    const contentWidth = pageWidth - (effectiveMargin * 2);
     const contentHeight = (canvas.height * contentWidth) / canvas.width;
-    const maxUsableHeight = pageHeight - (marginMm * 2);
+    const maxUsableHeight = pageHeight - (effectiveMargin * 2);
 
     const isSalesOrderFicha =
       clone.classList.contains('sales-ficha-print-container') ||
       clone.classList.contains('sales-ficha-print-sheet') ||
-      !!clone.querySelector('.sales-ficha-print-sheet');
+      !!clone.querySelector('.sales-ficha-print-sheet') ||
+      !!clone.querySelector('.blank-ficha-card');
 
     if (isSalesOrderFicha) {
-      // Sales order sheets are strictly 1-page A4 documents (either single 1/2 top-half or double full A4)
-      const renderHeight = contentHeight > maxUsableHeight ? maxUsableHeight : contentHeight;
-      pdf.addImage(imgData, 'JPEG', marginMm, marginMm, contentWidth, renderHeight, undefined, 'FAST');
+      if (halves.length === 2) {
+        // Double mode: fits full A4 page perfectly, both halves balanced
+        const renderHeight = Math.min(contentHeight, maxUsableHeight);
+        pdf.addImage(imgData, 'JPEG', effectiveMargin, effectiveMargin, contentWidth, renderHeight, undefined, 'FAST');
+      } else {
+        // Single mode: positioned in upper half of A4 sheet with realistic proportion
+        const renderHeight = Math.min(contentHeight, maxUsableHeight * 0.52);
+        pdf.addImage(imgData, 'JPEG', effectiveMargin, effectiveMargin, contentWidth, renderHeight, undefined, 'FAST');
+      }
     } else if (contentHeight <= maxUsableHeight + 2) {
       // Fits comfortably on 1 page (top half or full A4 page with proper aspect ratio)
       const renderHeight = Math.min(contentHeight, maxUsableHeight);
-      pdf.addImage(imgData, 'JPEG', marginMm, marginMm, contentWidth, renderHeight, undefined, 'FAST');
+      pdf.addImage(imgData, 'JPEG', effectiveMargin, effectiveMargin, contentWidth, renderHeight, undefined, 'FAST');
     } else {
       // Multi-page handling if content is taller than A4
       let heightLeft = contentHeight;
-      let position = marginMm;
-      const pageUsableHeight = pageHeight - (marginMm * 2);
+      let position = effectiveMargin;
+      const pageUsableHeight = pageHeight - (effectiveMargin * 2);
 
-      pdf.addImage(imgData, 'JPEG', marginMm, position, contentWidth, contentHeight, undefined, 'FAST');
+      pdf.addImage(imgData, 'JPEG', effectiveMargin, position, contentWidth, contentHeight, undefined, 'FAST');
       heightLeft -= pageUsableHeight;
 
       while (heightLeft > 0) {
         position -= pageUsableHeight;
         pdf.addPage();
-        pdf.addImage(imgData, 'JPEG', marginMm, position, contentWidth, contentHeight, undefined, 'FAST');
+        pdf.addImage(imgData, 'JPEG', effectiveMargin, position, contentWidth, contentHeight, undefined, 'FAST');
         heightLeft -= pageUsableHeight;
       }
     }
 
     return pdf.output('blob');
   } finally {
+    // 1. Explicitly clear and zero canvas to immediately reclaim GPU and texture memory
+    if (canvas) {
+      try {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        canvas.width = 0;
+        canvas.height = 0;
+      } catch {
+        // Non-blocking cleanup
+      }
+      canvas = null;
+    }
+
+    // 2. Remove offscreen wrapper DOM element cleanly
     if (document.body.contains(wrapper)) {
       document.body.removeChild(wrapper);
     }

@@ -241,6 +241,7 @@ export default function PrintSalesOrder({
   });
 
   const handlePdfAction = async (action: 'download' | 'whatsapp') => {
+    if (isGeneratingPDF || isSharingWhatsApp) return;
     const element = (document.querySelector('.sales-ficha-print-container') || document.querySelector('.sales-ficha-print-sheet')) as HTMLElement;
     if (!element) return;
 
@@ -257,7 +258,7 @@ export default function PrintSalesOrder({
       const filename = `Ficha_Venta_${clientNameClean}_${order.orderNo || ''}.pdf`;
 
       // Generación directa y confiable en cliente (HTML2Canvas + jsPDF)
-      const pdfBlob = await generatePdfFromElement(element, { filename, marginMm: 0 });
+      const pdfBlob = await generatePdfFromElement(element, { filename, marginMm: 4 });
 
       if (action === 'download') {
         // Download file to user device (exact original download logic preserved)
@@ -268,7 +269,11 @@ export default function PrintSalesOrder({
         document.body.appendChild(downloadLink);
         downloadLink.click();
         document.body.removeChild(downloadLink);
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        setTimeout(() => {
+          try {
+            URL.revokeObjectURL(blobUrl);
+          } catch {}
+        }, 45000);
       } else {
         // Enviar archivo PDF por WhatsApp (exactamente como estaba antes con Web Share API)
         const file = new File([pdfBlob], filename, { type: 'application/pdf' });
@@ -292,7 +297,11 @@ export default function PrintSalesOrder({
           document.body.appendChild(downloadLink);
           downloadLink.click();
           document.body.removeChild(downloadLink);
-          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+          setTimeout(() => {
+            try {
+              URL.revokeObjectURL(blobUrl);
+            } catch {}
+          }, 45000);
 
           const clientObj = clients.find(c => c.id === order.clientId);
           const rawPhone = order.dispatchContactPhone || clientObj?.phone || '';
@@ -695,15 +704,26 @@ export default function PrintSalesOrder({
             return (
               <>
                 {/* Half 1: Top Part */}
-                <div className="sales-ficha-half w-full flex-1 flex flex-col justify-start items-center p-1 sm:p-2 print:p-0">
+                <div className={`sales-ficha-half w-full flex-1 flex flex-col ${printMode === 'double' ? 'justify-center' : 'justify-start'} items-center p-1 sm:p-2 print:p-0`}>
                   {fichaSheetNode}
                 </div>
 
                 {/* Optional Half 2: Bottom Part (Mode 'double') */}
                 {printMode === 'double' && (
-                  <div className="sales-ficha-half w-full flex-1 flex flex-col justify-start items-center p-1 sm:p-2 print:p-0">
-                    {fichaSheetNode}
-                  </div>
+                  <>
+                    {/* Guía de corte en el centro exacto de la hoja A4 */}
+                    <div className="w-full flex items-center justify-center my-0.5 select-none print:my-0">
+                      <div className="flex-1 border-b border-dashed border-gray-400 print:border-black" />
+                      <span className="px-2.5 text-[8.5px] font-mono text-gray-500 print:text-black uppercase tracking-widest flex items-center gap-1">
+                        ✂ corte aquí
+                      </span>
+                      <div className="flex-1 border-b border-dashed border-gray-400 print:border-black" />
+                    </div>
+
+                    <div className="sales-ficha-half w-full flex-1 flex flex-col justify-center items-center p-1 sm:p-2 print:p-0">
+                      {fichaSheetNode}
+                    </div>
+                  </>
                 )}
               </>
             );
