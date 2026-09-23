@@ -1892,36 +1892,38 @@ export default function PackingListForm({
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 pt-3 border-t border-app-border/40">
-            <div className="md:col-span-1">
-              <label className="block text-xs font-bold text-app-text/80 mb-1">Número de Guía</label>
-              <input
-                type="text"
-                value={guideNumber}
-                onChange={e => setGuideNumber(e.target.value)}
-                placeholder="Ej. G001-000234 (Opcional)"
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm text-app-text focus:ring-2 focus:ring-app-primary bg-app-surface font-mono min-h-[42px] sm:min-h-0"
-                id="input-pl-guide"
-              />
-              <p className="text-[11px] text-app-text/50 mt-1 leading-snug">
-                Opcional. Puedes completarlo después si aún no tienes el número.
-              </p>
+          {packingType !== 'antiguo' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 pt-3 border-t border-app-border/40">
+              <div className="md:col-span-1">
+                <label className="block text-xs font-bold text-app-text/80 mb-1">Número de Guía</label>
+                <input
+                  type="text"
+                  value={guideNumber}
+                  onChange={e => setGuideNumber(e.target.value)}
+                  placeholder="Ej. G001-000234 (Opcional)"
+                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm text-app-text focus:ring-2 focus:ring-app-primary bg-app-surface font-mono min-h-[42px] sm:min-h-0"
+                  id="input-pl-guide"
+                />
+                <p className="text-[11px] text-app-text/50 mt-1 leading-snug">
+                  Opcional. Puedes completarlo después si aún no tienes el número.
+                </p>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-bold text-app-text/80 mb-1">Dirección de Despacho</label>
+                <input
+                  type="text"
+                  value={dispatchAddress}
+                  onChange={e => setDispatchAddress(e.target.value)}
+                  placeholder="Dirección de entrega (Sugerida del Cliente, Editable)"
+                  className="w-full px-3 py-2 border border-app-border rounded-lg text-sm text-app-text focus:ring-2 focus:ring-app-primary bg-app-surface min-h-[42px] sm:min-h-0"
+                  id="input-pl-dispatch-address"
+                />
+                <p className="text-[11px] text-app-text/50 mt-1 leading-snug">
+                  Se autocompleta con la dirección del cliente, pero puedes editarla.
+                </p>
+              </div>
             </div>
-            <div className="md:col-span-2">
-              <label className="block text-xs font-bold text-app-text/80 mb-1">Dirección de Despacho</label>
-              <input
-                type="text"
-                value={dispatchAddress}
-                onChange={e => setDispatchAddress(e.target.value)}
-                placeholder="Dirección de entrega (Sugerida del Cliente, Editable)"
-                className="w-full px-3 py-2 border border-app-border rounded-lg text-sm text-app-text focus:ring-2 focus:ring-app-primary bg-app-surface min-h-[42px] sm:min-h-0"
-                id="input-pl-dispatch-address"
-              />
-              <p className="text-[11px] text-app-text/50 mt-1 leading-snug">
-                Se autocompleta con la dirección del cliente, pero puedes editarla.
-              </p>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Divisor Visual Sutil */}

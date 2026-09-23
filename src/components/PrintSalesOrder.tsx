@@ -3,6 +3,7 @@ import { SalesOrder, Client, Seller, Article } from '../types';
 import { Printer, X, FileDown, MessageCircle } from 'lucide-react';
 import AlertBanner from './AlertBanner';
 import { generatePdfFromElement } from '../utils/generatePdfClient';
+import { formatPrintNumber } from '../utils/numberFormat';
 
 interface PrintSalesOrderProps {
   order: SalesOrder;
@@ -17,7 +18,7 @@ export const SALES_FICHA_PRINT_CSS = `
     box-sizing: border-box !important;
   }
   .sales-ficha-print-sheet {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    font-family: Arial, Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     color: #000000 !important;
     background-color: #ffffff !important;
     line-height: 1.3 !important;
@@ -25,6 +26,13 @@ export const SALES_FICHA_PRINT_CSS = `
     max-width: 194mm !important;
     margin: 0 auto !important;
     padding: 1.5mm !important;
+  }
+  .sales-ficha-print-sheet, .sales-ficha-print-sheet * {
+    font-family: Arial, Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  }
+  .sales-ficha-print-sheet table td, .sales-ficha-print-sheet table th, .tabular-nums {
+    font-variant-numeric: tabular-nums !important;
+    font-feature-settings: "tnum" 1, "zero" 0 !important;
   }
   .sales-ficha-print-sheet table {
     width: 100% !important;
@@ -225,20 +233,9 @@ export default function PrintSalesOrder({
     return trimmed;
   };
 
-  const formattedTotal = (order.totalAmount || 0).toLocaleString('es-PE', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-
-  const formattedBilled = (order.billedAmount || 0).toLocaleString('es-PE', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
-
-  const formattedPending = (order.pendingAmount || 0).toLocaleString('es-PE', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
+  const formattedTotal = formatPrintNumber(order.totalAmount || 0);
+  const formattedBilled = formatPrintNumber(order.billedAmount || 0);
+  const formattedPending = formatPrintNumber(order.pendingAmount || 0);
 
   const handlePdfAction = async (action: 'download' | 'whatsapp') => {
     if (isGeneratingPDF || isSharingWhatsApp) return;
@@ -467,19 +464,19 @@ export default function PrintSalesOrder({
               {/* Product Rows */}
               {order.items.map((item, idx) => (
                 <tr key={item.id || idx} className="border-b border-black">
-                  <td className="border-r border-black py-0.5 px-1 text-center font-mono font-bold align-middle">{item.code || ''}</td>
+                  <td className="border-r border-black py-0.5 px-1 text-center tabular-nums font-bold align-middle">{item.code || ''}</td>
                   <td className="border-r border-black py-0.5 px-1 font-bold align-middle">{item.description || ''}</td>
-                  <td className="border-r border-black py-0.5 px-1 text-right font-mono font-bold align-middle">
-                    {item.unitPrice && Number(item.unitPrice) > 0 ? item.unitPrice.toFixed(2) : ''}
+                  <td className="border-r border-black py-0.5 px-1 text-right tabular-nums font-bold align-middle">
+                    {item.unitPrice && Number(item.unitPrice) > 0 ? formatPrintNumber(item.unitPrice) : ''}
                   </td>
-                  <td className="border-r border-black py-0.5 px-1 text-right font-mono font-bold align-middle">
-                    {item.requestedQty && Number(item.requestedQty) > 0 ? item.requestedQty : ''}
+                  <td className="border-r border-black py-0.5 px-1 text-right tabular-nums font-bold align-middle">
+                    {item.requestedQty && Number(item.requestedQty) > 0 ? (Number.isInteger(Number(item.requestedQty)) ? item.requestedQty : formatPrintNumber(item.requestedQty)) : ''}
                   </td>
-                  <td className="border-r border-black py-0.5 px-1 text-right font-mono font-bold align-middle">
-                    {item.dispatchedQty && Number(item.dispatchedQty) > 0 ? item.dispatchedQty : ''}
+                  <td className="border-r border-black py-0.5 px-1 text-right tabular-nums font-bold align-middle">
+                    {item.dispatchedQty && Number(item.dispatchedQty) > 0 ? (Number.isInteger(Number(item.dispatchedQty)) ? item.dispatchedQty : formatPrintNumber(item.dispatchedQty)) : ''}
                   </td>
-                  <td className="py-0.5 px-1 text-right font-mono font-bold align-middle">
-                    {item.totalAmount && Number(item.totalAmount) > 0 ? item.totalAmount.toFixed(2) : '-'}
+                  <td className="py-0.5 px-1 text-right tabular-nums font-bold align-middle">
+                    {item.totalAmount && Number(item.totalAmount) > 0 ? formatPrintNumber(item.totalAmount) : '-'}
                   </td>
                 </tr>
               ))}
@@ -492,7 +489,7 @@ export default function PrintSalesOrder({
                   <td className="border-r border-black py-0.5 px-1"></td>
                   <td className="border-r border-black py-0.5 px-1"></td>
                   <td className="border-r border-black py-0.5 px-1"></td>
-                  <td className="py-0.5 px-1 text-right font-mono font-bold text-black align-middle">{i === 0 && order.items.length === 0 ? '-' : ''}</td>
+                  <td className="py-0.5 px-1 text-right tabular-nums font-bold text-black align-middle">{i === 0 && order.items.length === 0 ? '-' : ''}</td>
                 </tr>
               ))}
 
@@ -504,7 +501,7 @@ export default function PrintSalesOrder({
                 <td colSpan={1} className="border-r border-black py-0.5 px-1 text-left font-normal align-middle">
                   TOTAL
                 </td>
-                <td colSpan={1} className="py-0.5 px-1 text-right font-mono font-bold align-middle">
+                <td colSpan={1} className="py-0.5 px-1 text-right tabular-nums font-bold align-middle">
                   {order.totalAmount && Number(order.totalAmount) > 0 ? `S/. ${formattedTotal}` : ''}
                 </td>
               </tr>
@@ -518,7 +515,7 @@ export default function PrintSalesOrder({
                   {order.fiscalAddress || ''}
                 </td>
                 <td colSpan={2} className="py-0.5 px-1 font-normal align-middle">
-                  RUC/DNI: <span className="font-mono font-bold ml-1">{order.clientRucDni || ''}</span>
+                  RUC/DNI: <span className="tabular-nums font-bold ml-1">{order.clientRucDni || ''}</span>
                 </td>
               </tr>
 
@@ -536,7 +533,7 @@ export default function PrintSalesOrder({
                       </tr>
                       <tr>
                         <td className="w-16 border-r border-black py-0.5 px-1 font-normal">Teléfono:</td>
-                        <td className="py-0.5 px-1 font-mono font-bold">{order.dispatchContactPhone || ''}</td>
+                        <td className="py-0.5 px-1 tabular-nums font-bold">{order.dispatchContactPhone || ''}</td>
                       </tr>
                     </tbody>
                   </table>

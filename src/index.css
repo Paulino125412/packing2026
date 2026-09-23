@@ -298,3 +298,14 @@ select option {
 .animate-slideInLeft {
   animation: slideInLeft 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Print and Numbers Typography Standard - Clean open zero without slash or dot */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "zero" 0;
+}
+
+.print-page, .print-page * {
+  font-feature-settings: "zero" 0;
+}
+

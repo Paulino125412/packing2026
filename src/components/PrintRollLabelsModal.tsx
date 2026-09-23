@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
+import { formatPrintNumber } from '../utils/numberFormat';
 
 export interface PrintableRollLabel {
   id: string;
@@ -486,7 +487,7 @@ export default function PrintRollLabelsModal({
                           <span className="text-[9px] uppercase font-black tracking-wider text-gray-200">
                             ROLLO Nº:
                           </span>
-                          <span className="text-sm sm:text-base font-black font-mono tracking-tight text-white">
+                          <span className="text-sm sm:text-base font-black font-sans tabular-nums tracking-tight text-white">
                             {roll.rollNumber}
                           </span>
                         </div>
@@ -494,8 +495,8 @@ export default function PrintRollLabelsModal({
                         {/* Metraje Display */}
                         <div className="flex items-baseline gap-1 my-0.5">
                           <span className="text-[10px] uppercase font-black text-gray-700">CANTIDAD:</span>
-                          <span className="text-base sm:text-lg font-black font-mono tracking-tight text-black">
-                            {roll.meters.toFixed(2)}
+                          <span className="text-base sm:text-lg font-black font-sans tabular-nums tracking-tight text-black">
+                            {formatPrintNumber(roll.meters)}
                           </span>
                           <span className="text-xs font-bold text-gray-800 uppercase">
                             {roll.unit || 'METROS'}
@@ -506,12 +507,12 @@ export default function PrintRollLabelsModal({
                         <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[9px] leading-tight font-medium text-black">
                           {roll.lot && (
                             <div className="truncate">
-                              <strong className="font-black text-gray-700">LOTE:</strong> <span className="font-mono font-bold">{roll.lot}</span>
+                              <strong className="font-black text-gray-700">LOTE:</strong> <span className="font-sans tabular-nums font-bold">{roll.lot}</span>
                             </div>
                           )}
                           {roll.partida && (
                             <div className="truncate">
-                              <strong className="font-black text-gray-700">PARTIDA:</strong> <span className="font-mono font-bold">{roll.partida}</span>
+                              <strong className="font-black text-gray-700">PARTIDA:</strong> <span className="font-sans tabular-nums font-bold">{roll.partida}</span>
                             </div>
                           )}
                           {roll.tono && (
@@ -526,7 +527,7 @@ export default function PrintRollLabelsModal({
                           )}
                           {roll.weight && (
                             <div className="truncate">
-                              <strong className="font-black text-gray-700">PESO:</strong> <span>{roll.weight}</span>
+                              <strong className="font-black text-gray-700">PESO:</strong> <span>{formatPrintNumber(roll.weight)} kg</span>
                             </div>
                           )}
                         </div>

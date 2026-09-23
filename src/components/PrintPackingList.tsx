@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useLayoutEffect, useRef } from 'react';
 import { PackingList, PackingListItem, Client, Seller, Provider, Article } from '../types';
 import { FileText, Printer, X, AlertTriangle, MessageCircle, Edit2 } from 'lucide-react';
+import { formatPrintNumber } from '../utils/numberFormat';
 
 export interface PrintableRow {
   type: 'header' | 'roll' | 'footer';
@@ -302,7 +303,7 @@ Punto de Llegada: ${puntoLlegada}
 Peso Bruto: ${pesoBruto} ${unidadMedida}
 Transportista: ${driverName}
 Placa: ${vehiclePlate}
-Total Metros: ${totalMeters.toFixed(2)} m`;
+Total Metros: ${formatPrintNumber(totalMeters)} m`;
 
       const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
       window.open(url, '_blank');
@@ -318,8 +319,8 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
     const text = `${guideLine}
 Cliente: ${clientNameOriginal}
 Fecha: ${packingList.date}
-Total Rollos: ${packingList.totalRollsOrCuts}${totalWeight > 0 ? `\nTotal Peso: ${totalWeight.toFixed(2)} kg` : ''}
-Total Metros: ${totalMeters.toFixed(2)} m`;
+Total Rollos: ${packingList.totalRollsOrCuts}${totalWeight > 0 ? `\nTotal Peso: ${formatPrintNumber(totalWeight)} kg` : ''}
+Total Metros: ${formatPrintNumber(totalMeters)} m`;
 
     const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
     window.open(url, '_blank');
@@ -596,6 +597,15 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
     <div id="print-section" className="fixed inset-0 bg-app-bg/75 backdrop-blur-xs z-50 overflow-y-auto p-4 md:p-6 flex justify-center items-start print-overlay-container">
       {/* CSS rules for pure A4 printing of two clean pages */}
       <style>{`
+        /* Force clean commercial Arial/Helvetica sans-serif so the zero '0' is clean and open (no dot or slash) */
+        .print-page, .print-page * {
+          font-family: Arial, Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        }
+        .print-page .tabular-nums, .print-page table td, .print-page table th {
+          font-variant-numeric: tabular-nums !important;
+          font-feature-settings: "tnum" 1, "zero" 0 !important;
+        }
+
         @media print {
           body {
             background-color: white !important;
@@ -647,10 +657,12 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
             box-sizing: border-box !important;
             background-color: white !important;
             color: black !important;
+            font-family: Arial, Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
           }
           .print-page * {
             color: black !important;
             border-color: black !important;
+            font-family: Arial, Helvetica, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
           }
           .print-page:last-child {
             page-break-after: avoid !important;
@@ -1150,7 +1162,7 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
               </div>
               <div className="text-right space-y-0.5">
                 <p className="font-bold">VENDEDOR: <span className="font-normal uppercase">{seller?.name || 'Vendedor'}</span></p>
-                <p className="font-bold">FECHA: <span className="font-normal font-mono">{packingList.date}</span></p>
+                <p className="font-bold">FECHA: <span className="font-normal font-sans tabular-nums">{packingList.date}</span></p>
               </div>
             </div>
           </div>
@@ -1184,15 +1196,15 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
                   const item = row.item!;
                   return (
                     <tr key={`m-r-${idx}`} data-row-index={idx} className="border-b border-app-border/40">
-                      <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px] pl-2' : 'py-1 px-1 text-[10.5px] pl-3'} font-mono font-bold`}>
+                      <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px] pl-2' : 'py-1 px-1 text-[10.5px] pl-3'} font-sans tabular-nums font-bold`}>
                         {hasRollNo ? (item.rollNumber || '-') : ((row.index ?? 0) + 1)}
                       </td>
-                      {showLot && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-mono`}>{item.lot || '-'}</td>}
-                      {showPartida && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-mono`}>{item.partida || '-'}</td>}
-                      {hasTono && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-mono font-bold uppercase`}>{item.tono || '-'}</td>}
-                      {hasWidth && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-mono`}>{item.width ? `${item.width} m` : '-'}</td>}
-                      {hasWeight && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-mono`}>{item.weight ? `${item.weight} kg` : '-'}</td>}
-                      <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-right font-mono font-bold`}>{Number(item.meters).toFixed(2)} m</td>
+                      {showLot && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-sans tabular-nums`}>{item.lot || '-'}</td>}
+                      {showPartida && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-sans tabular-nums`}>{item.partida || '-'}</td>}
+                      {hasTono && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-sans font-bold uppercase`}>{item.tono || '-'}</td>}
+                      {hasWidth && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-sans tabular-nums`}>{item.width ? `${formatPrintNumber(item.width)} m` : '-'}</td>}
+                      {hasWeight && <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-center font-sans tabular-nums font-semibold`}>{item.weight ? `${formatPrintNumber(item.weight)} kg` : '-'}</td>}
+                      <td className={`${isCompact ? 'py-[2px] px-1 text-[9.5px]' : 'py-1 px-1 text-[11px]'} text-right font-sans tabular-nums font-bold`}>{formatPrintNumber(item.meters)} m</td>
                     </tr>
                   );
                 } else if (row.type === 'footer') {
@@ -1202,12 +1214,12 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
                         {row.articleName} -- Cantidad: {row.groupLength} | Total:
                       </td>
                       {hasWeight && (
-                        <td className={`${isCompact ? 'py-1 px-1' : 'py-1.5 px-1'} text-center font-mono font-bold`}>
-                          {(row.articleTotalWeight ?? 0) > 0 ? `${(row.articleTotalWeight ?? 0).toFixed(2)} kg` : '-'}
+                        <td className={`${isCompact ? 'py-1 px-1' : 'py-1.5 px-1'} text-center font-sans tabular-nums font-bold`}>
+                          {(row.articleTotalWeight ?? 0) > 0 ? `${formatPrintNumber(row.articleTotalWeight)} kg` : '-'}
                         </td>
                       )}
-                      <td className={`${isCompact ? 'py-1 px-1' : 'py-1.5 px-1'} text-right font-mono font-black`}>
-                        {(row.articleTotalMeters ?? 0).toFixed(2)} m
+                      <td className={`${isCompact ? 'py-1 px-1' : 'py-1.5 px-1'} text-right font-sans tabular-nums font-black`}>
+                        {formatPrintNumber(row.articleTotalMeters)} m
                       </td>
                     </tr>
                   );
@@ -1220,8 +1232,8 @@ Total Metros: ${totalMeters.toFixed(2)} m`;
           {/* Measure Footer Block (Grand Totals + Aviso Importante) */}
           <div ref={measureFooterBlockRef} className="pt-1">
             <div className={`flex flex-col items-end justify-end ${isCompact ? 'mt-1 text-[10.5px]' : 'mt-2 text-xs'} font-bold space-y-0.5`}>
-              <p className="uppercase tracking-tight">TOTAL ROLLOS: <span className={`font-mono font-black ${isCompact ? 'text-xs' : 'text-sm'}`}>{totalRolls}</span></p>
-              <p className="uppercase tracking-tight font-display">TOTAL METROS: <span className={`font-mono font-black ${isCompact ? 'text-sm' : 'text-md'}`}>{totalMeters.toFixed(2)} m</span></p>
+              <p className="uppercase tracking-tight">TOTAL ROLLOS: <span className={`font-sans tabular-nums font-black ${isCompact ? 'text-xs' : 'text-sm'}`}>{totalRolls}</span></p>
+              <p className="uppercase tracking-tight font-display">TOTAL METROS: <span className={`font-sans tabular-nums font-black ${isCompact ? 'text-sm' : 'text-md'}`}>{formatPrintNumber(totalMeters)} m</span></p>
             </div>
             <div className={`${isCompact ? 'mt-2 p-2' : 'mt-4 p-2.5'} border border-app-border rounded-lg`}>
               <h3 className={`${isCompact ? 'text-[8.5px] mb-1' : 'text-[10px] mb-1.5'} font-black uppercase tracking-widest text-center border-b pb-0.5 py-0.5`}>
@@ -1344,7 +1356,7 @@ function PaginatedSinglePrintPage({
               VENDEDOR: <span className="font-normal uppercase text-app-text/90">{seller?.name || 'Vendedor Autorizado'}</span>
             </p>
             <p className="font-bold">
-              FECHA: <span className="font-normal font-mono text-app-text/80">{packingList.date}</span>
+              FECHA: <span className="font-normal font-sans tabular-nums text-app-text/80">{packingList.date}</span>
             </p>
           </div>
         </div>
@@ -1382,15 +1394,15 @@ function PaginatedSinglePrintPage({
                   const item = row.item!;
                   return (
                     <tr key={`r-${item.id || idx}`} className="border-b border-app-border/40 hover:bg-app-bg/10">
-                      <td className={`${rowPaddingClass} font-mono font-bold pl-2`}>
+                      <td className={`${rowPaddingClass} font-sans tabular-nums font-bold pl-2`}>
                         {hasRollNo ? (item.rollNumber || '-') : ((row.index ?? 0) + 1)}
                       </td>
-                      {showLot && <td className={`${rowPaddingClass} text-center font-mono`}>{item.lot || '-'}</td>}
-                      {showPartida && <td className={`${rowPaddingClass} text-center font-mono`}>{item.partida || '-'}</td>}
-                      {hasTono && <td className={`${rowPaddingClass} text-center font-mono font-bold text-app-primary uppercase`}>{item.tono || '-'}</td>}
-                      {hasWidth && <td className={`${rowPaddingClass} text-center font-mono`}>{item.width ? `${item.width} m` : '-'}</td>}
-                      {hasWeight && <td className={`${rowPaddingClass} text-center font-mono`}>{item.weight ? `${item.weight} kg` : '-'}</td>}
-                      <td className={`${rowPaddingClass} text-right font-mono font-bold`}>{Number(item.meters).toFixed(2)} m</td>
+                      {showLot && <td className={`${rowPaddingClass} text-center font-sans tabular-nums`}>{item.lot || '-'}</td>}
+                      {showPartida && <td className={`${rowPaddingClass} text-center font-sans tabular-nums`}>{item.partida || '-'}</td>}
+                      {hasTono && <td className={`${rowPaddingClass} text-center font-sans font-bold text-app-primary uppercase`}>{item.tono || '-'}</td>}
+                      {hasWidth && <td className={`${rowPaddingClass} text-center font-sans tabular-nums`}>{item.width ? `${formatPrintNumber(item.width)} m` : '-'}</td>}
+                      {hasWeight && <td className={`${rowPaddingClass} text-center font-sans tabular-nums font-semibold`}>{item.weight ? `${formatPrintNumber(item.weight)} kg` : '-'}</td>}
+                      <td className={`${rowPaddingClass} text-right font-sans tabular-nums font-bold`}>{formatPrintNumber(item.meters)} m</td>
                     </tr>
                   );
                 } else if (row.type === 'footer') {
@@ -1400,12 +1412,12 @@ function PaginatedSinglePrintPage({
                         {row.articleName} -- Cantidad: {row.groupLength} | Total:
                       </td>
                       {hasWeight && (
-                        <td className={`${isDense ? 'py-1 px-1' : 'py-1.5 px-1'} text-center font-mono font-bold text-app-text`}>
-                          {(row.articleTotalWeight ?? 0) > 0 ? `${(row.articleTotalWeight ?? 0).toFixed(2)} kg` : '-'}
+                        <td className={`${isDense ? 'py-1 px-1' : 'py-1.5 px-1'} text-center font-sans tabular-nums font-bold text-app-text`}>
+                          {(row.articleTotalWeight ?? 0) > 0 ? `${formatPrintNumber(row.articleTotalWeight)} kg` : '-'}
                         </td>
                       )}
-                      <td className={`${isDense ? 'py-1 px-1' : 'py-1.5 px-1'} text-right font-mono text-app-primary font-black`}>
-                        {(row.articleTotalMeters ?? 0).toFixed(2)} m
+                      <td className={`${isDense ? 'py-1 px-1' : 'py-1.5 px-1'} text-right font-sans tabular-nums text-app-primary font-black`}>
+                        {formatPrintNumber(row.articleTotalMeters)} m
                       </td>
                     </tr>
                   );
@@ -1418,8 +1430,8 @@ function PaginatedSinglePrintPage({
           {/* Grand Totals Section */}
           {isLastPage && (
             <div className={`flex flex-col items-end justify-end ${totalRolls > 28 ? 'mt-1.5 text-[11px]' : 'mt-2.5 text-xs'} font-bold space-y-0.5`}>
-              <p className="uppercase tracking-tight">TOTAL ROLLOS: <span className="font-mono font-black text-sm text-app-secondary">{totalRolls}</span></p>
-              <p className="uppercase tracking-tight font-display text-app-primary">TOTAL METROS: <span className="font-mono font-black text-base">{totalMeters.toFixed(2)} m</span></p>
+              <p className="uppercase tracking-tight">TOTAL ROLLOS: <span className="font-sans tabular-nums font-black text-sm text-app-secondary">{totalRolls}</span></p>
+              <p className="uppercase tracking-tight font-display text-app-primary">TOTAL METROS: <span className="font-sans tabular-nums font-black text-base">{formatPrintNumber(totalMeters)} m</span></p>
             </div>
           )}
         </div>
@@ -1479,18 +1491,20 @@ function CortePrintSheet({
               <p className="font-bold">
                 CLIENTE: <span className="font-normal uppercase text-app-text/90">{client?.name || 'Cliente Eliminado'}</span>
               </p>
-              {packingList.dispatchAddress && (
+              {packingList.type !== 'antiguo' && packingList.dispatchAddress && (
                 <p className="font-bold mt-0.5">
                   DESTINO: <span className="font-normal uppercase text-app-text/90">{packingList.dispatchAddress}</span>
                 </p>
               )}
+              {packingList.type !== 'antiguo' && packingList.guideNumber && (
+                <p className="font-bold mt-0.5">
+                  GUÍA N°: <span className="font-normal uppercase text-app-text/90">
+                    {packingList.guideNumber}
+                  </span>
+                </p>
+              )}
               <p className="font-bold mt-0.5">
-                GUÍA N°: <span className="font-normal uppercase text-app-text/90">
-                  {packingList.guideNumber || '___________'}
-                </span>
-              </p>
-              <p className="font-bold mt-0.5">
-                FECHA: <span className="font-normal font-mono text-app-text/80">{packingList.date}</span>
+                FECHA: <span className="font-normal font-sans tabular-nums text-app-text/80">{packingList.date}</span>
               </p>
             </div>
             <div className="text-right">
@@ -1525,12 +1539,12 @@ function CortePrintSheet({
                       </div>
                       
                       {/* Grid of metrajes (clean, aligned columns) */}
-                      <div className="grid grid-cols-6 gap-x-2 gap-y-0.5 py-0.5 font-mono text-[9px] text-left">
+                      <div className="grid grid-cols-6 gap-x-2 gap-y-0.5 py-0.5 font-sans tabular-nums text-[9px] text-left">
                         {groupItems.map((item, idx) => {
                           const hasTonoValue = hasTono && item.tono;
                           return (
                             <div key={item.id || idx} className="py-0.2">
-                              <span className="font-bold">{Number(item.meters).toFixed(2)}</span>
+                              <span className="font-bold">{formatPrintNumber(item.meters)}</span>
                               {hasTonoValue && (
                                 <span className="text-[7.5px] font-extrabold bg-app-primary text-white px-0.5 rounded ml-1">
                                   {item.tono}
@@ -1541,7 +1555,7 @@ function CortePrintSheet({
                         })}
                       </div>
                       <div className="text-right font-bold text-app-secondary text-[9px] mt-0.5 pr-2">
-                        Subtotal: {articleTotalMeters.toFixed(2)} m{articleTotalWeight > 0 ? ` | ${articleTotalWeight.toFixed(2)} kg` : ''}
+                        Subtotal: {formatPrintNumber(articleTotalMeters)} m{articleTotalWeight > 0 ? ` | ${formatPrintNumber(articleTotalWeight)} kg` : ''}
                       </div>
                     </div>
                   );
@@ -1588,8 +1602,8 @@ function CortePrintSheet({
         <div>
           <div className="border-t border-app-border pt-1.5 mt-2 text-[10px] font-black uppercase">
             <div className="flex justify-between items-center px-2">
-              <p className="font-display text-app-primary">TOTAL METROS: <span className="font-mono text-xs">{totalMeters.toFixed(2)} m</span></p>
-              <p className="font-display text-app-secondary">CANTIDAD DE ROLLOS: <span className="font-mono text-xs">{totalRolls}</span></p>
+              <p className="font-display text-app-primary">TOTAL METROS: <span className="font-sans tabular-nums text-xs">{formatPrintNumber(totalMeters)} m</span></p>
+              <p className="font-display text-app-secondary">CANTIDAD DE ROLLOS: <span className="font-sans tabular-nums text-xs">{totalRolls}</span></p>
             </div>
           </div>
 
@@ -1628,18 +1642,20 @@ function CortePrintSheet({
               <p className="font-bold">
                 CLIENTE: <span className="font-normal uppercase text-app-text/90">{client?.name || 'Cliente Eliminado'}</span>
               </p>
-              {packingList.dispatchAddress && (
+              {packingList.type !== 'antiguo' && packingList.dispatchAddress && (
                 <p className="font-bold mt-0.5">
                   DESTINO: <span className="font-normal uppercase text-app-text/90">{packingList.dispatchAddress}</span>
                 </p>
               )}
+              {packingList.type !== 'antiguo' && packingList.guideNumber && (
+                <p className="font-bold mt-0.5">
+                  GUÍA N°: <span className="font-normal uppercase text-app-text/90">
+                    {packingList.guideNumber}
+                  </span>
+                </p>
+              )}
               <p className="font-bold mt-0.5">
-                GUÍA N°: <span className="font-normal uppercase text-app-text/90">
-                  {packingList.guideNumber || '___________'}
-                </span>
-              </p>
-              <p className="font-bold mt-0.5">
-                FECHA: <span className="font-normal font-mono text-app-text/80">{packingList.date}</span>
+                FECHA: <span className="font-normal font-sans tabular-nums text-app-text/80">{packingList.date}</span>
               </p>
             </div>
             <div className="text-right">
@@ -1670,12 +1686,12 @@ function CortePrintSheet({
                   </div>
                   
                   {/* Grid of metrajes (clean, aligned columns - full 8 columns wide for bottom part) */}
-                  <div className="grid grid-cols-8 gap-x-2 gap-y-0.5 py-0.5 font-mono text-[9px] text-left">
+                  <div className="grid grid-cols-8 gap-x-2 gap-y-0.5 py-0.5 font-sans tabular-nums text-[9px] text-left">
                     {groupItems.map((item, idx) => {
                       const hasTonoValue = hasTono && item.tono;
                       return (
                         <div key={item.id || idx} className="py-0.2">
-                          <span className="font-bold">{Number(item.meters).toFixed(2)}</span>
+                          <span className="font-bold">{formatPrintNumber(item.meters)}</span>
                           {hasTonoValue && (
                             <span className="text-[7.5px] font-extrabold bg-app-primary text-white px-0.5 rounded ml-1">
                               {item.tono}
@@ -1686,7 +1702,7 @@ function CortePrintSheet({
                     })}
                   </div>
                   <div className="text-right font-bold text-app-secondary text-[9px] mt-0.5 pr-2">
-                    Subtotal: {articleTotalMeters.toFixed(2)} m{articleTotalWeight > 0 ? ` | ${articleTotalWeight.toFixed(2)} kg` : ''}
+                    Subtotal: {formatPrintNumber(articleTotalMeters)} m{articleTotalWeight > 0 ? ` | ${formatPrintNumber(articleTotalWeight)} kg` : ''}
                   </div>
                 </div>
               );
@@ -1703,8 +1719,8 @@ function CortePrintSheet({
           {/* Inline Summary for Bottom Half (Only Metrics to prevent Client/Seller repetition) */}
           <div className="border-t border-app-border pt-1.5 text-[10px] font-black uppercase">
             <div className="flex justify-between items-center px-2">
-              <p className="font-display text-app-primary">TOTAL METROS: <span className="font-mono text-xs">{totalMeters.toFixed(2)} m</span></p>
-              <p className="font-display text-app-secondary">CANTIDAD DE ROLLOS: <span className="font-mono text-xs">{totalRolls}</span></p>
+              <p className="font-display text-app-primary">TOTAL METROS: <span className="font-sans tabular-nums text-xs">{formatPrintNumber(totalMeters)} m</span></p>
+              <p className="font-display text-app-secondary">CANTIDAD DE ROLLOS: <span className="font-sans tabular-nums text-xs">{totalRolls}</span></p>
             </div>
           </div>
 
@@ -1794,7 +1810,7 @@ function GuiaRemisionPrintSheet({
         description: articleName.toUpperCase(),
         pieces: rollCount,
         unit: 'METRO',
-        quantity: totalArticleMeters.toFixed(2),
+        quantity: formatPrintNumber(totalArticleMeters),
       };
     });
   }, [groupedItems, getArticleName]);
@@ -1899,7 +1915,7 @@ function GuiaRemisionPrintSheet({
             </div>
             <div>
               <p className="font-black uppercase text-gray-400 text-[7.5px]">Peso Bruto Total</p>
-              <p className="font-mono font-black text-gray-900 mt-0.5">{Number(pesoBruto).toFixed(3)}</p>
+              <p className="font-mono font-black text-gray-900 mt-0.5">{formatPrintNumber(pesoBruto, 3)}</p>
             </div>
           </div>
         </div>
@@ -1925,7 +1941,7 @@ function GuiaRemisionPrintSheet({
                   <td className="py-1.5 px-3 border-r border-gray-200 font-bold text-gray-900 uppercase">{item.description}</td>
                   <td className="py-1.5 px-2 border-r border-gray-200 text-center font-mono font-bold text-gray-700">{item.pieces}</td>
                   <td className="py-1.5 px-2 border-r border-gray-200 text-center uppercase text-gray-500">{item.unit}</td>
-                  <td className="py-1.5 px-3 text-right font-mono font-black text-gray-900">{Number(item.quantity).toFixed(2)}</td>
+                  <td className="py-1.5 px-3 text-right font-mono font-black text-gray-900">{formatPrintNumber(item.quantity)}</td>
                 </tr>
               ))}
             </tbody>
