@@ -158,16 +158,40 @@ export default function PrintPackingList({
   const totalRolls = packingList.items.length;
   const totalWeight = packingList.items.reduce((acc, item) => acc + parseNumericWeight(item.weight), 0);
 
-  const firstItemProviderId = packingList.items[0]?.providerId;
-  const activeProvider = providers.find(p => p.id === firstItemProviderId) || null;
   const omitted = packingList.omittedFields || [];
 
-  const showLot = (activeProvider ? activeProvider.hasLot : true) && !omitted.includes('lot');
-  const showPartida = (activeProvider ? activeProvider.hasPartida : true) && !omitted.includes('partida');
-  const hasRollNo = (activeProvider ? activeProvider.hasRollNo : false) && !omitted.includes('rollNo');
-  const hasTono = (activeProvider ? !!activeProvider.hasTono : false) && !omitted.includes('tono');
-  const hasWidth = (activeProvider ? !!activeProvider.hasWidth : false) && !omitted.includes('width');
-  const hasWeight = (activeProvider ? !!activeProvider.hasWeight : false) && !omitted.includes('weight');
+  // Robust multi-provider column check: if ANY item has lot/partida/tono or its provider uses it, display that column cleanly
+  const anyProviderHasLot = packingList.items.some(i => {
+    const prov = providers.find(p => p.id === i.providerId);
+    return (prov ? prov.hasLot : true) || !!i.lot;
+  });
+  const anyProviderHasPartida = packingList.items.some(i => {
+    const prov = providers.find(p => p.id === i.providerId);
+    return (prov ? prov.hasPartida : true) || !!i.partida;
+  });
+  const anyProviderHasRollNo = packingList.items.some(i => {
+    const prov = providers.find(p => p.id === i.providerId);
+    return (prov ? prov.hasRollNo : false) || (!!i.rollNumber && !i.rollNumber.startsWith('CORTE-'));
+  });
+  const anyProviderHasTono = packingList.items.some(i => {
+    const prov = providers.find(p => p.id === i.providerId);
+    return (prov ? !!prov.hasTono : false) || (!!i.tono && i.tono !== '-');
+  });
+  const anyProviderHasWidth = packingList.items.some(i => {
+    const prov = providers.find(p => p.id === i.providerId);
+    return (prov ? !!prov.hasWidth : false) || !!i.width;
+  });
+  const anyProviderHasWeight = packingList.items.some(i => {
+    const prov = providers.find(p => p.id === i.providerId);
+    return (prov ? !!prov.hasWeight : false) || !!i.weight;
+  });
+
+  const showLot = anyProviderHasLot && !omitted.includes('lot');
+  const showPartida = anyProviderHasPartida && !omitted.includes('partida');
+  const hasRollNo = anyProviderHasRollNo && !omitted.includes('rollNo');
+  const hasTono = anyProviderHasTono && !omitted.includes('tono');
+  const hasWidth = anyProviderHasWidth && !omitted.includes('width');
+  const hasWeight = anyProviderHasWeight && !omitted.includes('weight');
 
   const colSpanHeader = 2 
     + (showLot ? 1 : 0) 
@@ -1290,30 +1314,113 @@ function PaginatedSinglePrintPage({
   isCompact = false,
   bottomContent
 }: PaginatedSinglePrintPageProps) {
-  const firstItemProviderId = packingList.items[0]?.providerId;
-  const activeProvider = providers.find(p => p.id === firstItemProviderId) || null;
-  const omitted = packingList.omittedFields || [];
+  // Helper to get provider-specific field configuration for any article
+  const getArticleConfig = (artId: string) => {
+    const artItems = packingList.items.filter(i => i.articleId === artId);
+    const firstItem = artItems[0];
+    const prov = providers.find(p => p.id === firstItem?.providerId);
+    const omitted = packingList.omittedFields || [];
 
-  const showLot = (activeProvider ? activeProvider.hasLot : true) && !omitted.includes('lot');
-  const showPartida = (activeProvider ? activeProvider.hasPartida : true) && !omitted.includes('partida');
-  const hasRollNo = (activeProvider ? activeProvider.hasRollNo : false) && !omitted.includes('rollNo');
-  const hasTono = (activeProvider ? !!activeProvider.hasTono : false) && !omitted.includes('tono');
-  const hasWidth = (activeProvider ? !!activeProvider.hasWidth : false) && !omitted.includes('width');
-  const hasWeight = (activeProvider ? !!activeProvider.hasWeight : false) && !omitted.includes('weight');
+    const hasLot = (prov ? prov.hasLot : true) || artItems.some(i => !!i.lot);
+    const hasPartida = (prov ? prov.hasPartida : false) || artItems.some(i => !!i.partida);
+    const hasRollNo = (prov ? prov.hasRollNo : false) || artItems.some(i => !!i.rollNumber && !i.rollNumber.startsWith('CORTE-'));
+    const hasTono = (prov ? !!prov.hasTono : false) || artItems.some(i => !!i.tono && i.tono !== '-');
+    const hasWidth = (prov ? !!prov.hasWidth : false) || artItems.some(i => !!i.width);
+    const hasWeight = (prov ? !!prov.hasWeight : false) || artItems.some(i => !!i.weight);
 
-  const colSpanHeader = 2 
-    + (showLot ? 1 : 0) 
-    + (showPartida ? 1 : 0) 
-    + (hasTono ? 1 : 0)
-    + (hasWidth ? 1 : 0)
-    + (hasWeight ? 1 : 0);
+    const showLot = hasLot && !omitted.includes('lot');
+    const showPartida = hasPartida && !omitted.includes('partida');
+    const showRollNo = hasRollNo && !omitted.includes('rollNo');
+    const showTono = hasTono && !omitted.includes('tono');
+    const showWidth = hasWidth && !omitted.includes('width');
+    const showWeight = hasWeight && !omitted.includes('weight');
 
-  const colSpanSummary = 1 
-    + (showLot ? 1 : 0) 
-    + (showPartida ? 1 : 0) 
-    + (hasTono ? 1 : 0)
-    + (hasWidth ? 1 : 0)
-    + (hasWeight ? 1 : 0);
+    const colSpanHeader = 2 
+      + (showLot ? 1 : 0) 
+      + (showPartida ? 1 : 0) 
+      + (showTono ? 1 : 0)
+      + (showWidth ? 1 : 0)
+      + (showWeight ? 1 : 0);
+
+    const colSpanSummary = 1 
+      + (showLot ? 1 : 0) 
+      + (showPartida ? 1 : 0) 
+      + (showTono ? 1 : 0)
+      + (showWidth ? 1 : 0)
+      + (showWeight ? 1 : 0);
+
+    return {
+      showLot,
+      showPartida,
+      showRollNo,
+      showTono,
+      showWidth,
+      showWeight,
+      colSpanHeader,
+      colSpanSummary
+    };
+  };
+
+  // Group consecutive rows in block by articleId so each fabric can have its own column header
+  const articleSectionsInBlock = useMemo(() => {
+    interface ArticleSection {
+      articleId: string;
+      articleName: string;
+      config: ReturnType<typeof getArticleConfig>;
+      rolls: { item: PackingListItem; index: number }[];
+      footer?: {
+        totalMeters: number;
+        totalWeight: number;
+        groupLength: number;
+      };
+    }
+
+    const sections: ArticleSection[] = [];
+    let current: ArticleSection | null = null;
+
+    block.forEach(row => {
+      if (row.type === 'header') {
+        current = {
+          articleId: row.articleId,
+          articleName: row.articleName || getArticleName(row.articleId),
+          config: getArticleConfig(row.articleId),
+          rolls: []
+        };
+        sections.push(current);
+      } else if (row.type === 'roll') {
+        if (!current || current.articleId !== row.articleId) {
+          current = {
+            articleId: row.articleId,
+            articleName: row.articleName || getArticleName(row.articleId),
+            config: getArticleConfig(row.articleId),
+            rolls: []
+          };
+          sections.push(current);
+        }
+        current.rolls.push({
+          item: row.item!,
+          index: row.index ?? current.rolls.length
+        });
+      } else if (row.type === 'footer') {
+        if (!current || current.articleId !== row.articleId) {
+          current = {
+            articleId: row.articleId,
+            articleName: row.articleName || getArticleName(row.articleId),
+            config: getArticleConfig(row.articleId),
+            rolls: []
+          };
+          sections.push(current);
+        }
+        current.footer = {
+          totalMeters: row.articleTotalMeters ?? 0,
+          totalWeight: row.articleTotalWeight ?? 0,
+          groupLength: row.groupLength ?? current.rolls.length
+        };
+      }
+    });
+
+    return sections;
+  }, [block, packingList, providers, getArticleName]);
 
   return (
     <div translate="no" className={`notranslate ticket-perforated bg-app-surface text-app-text ${isCompact ? 'px-6 py-4 md:px-7 md:py-5' : 'px-6 py-4 md:px-8 md:py-6'} border border-app-border rounded-xl shadow-lg font-sans max-w-3xl mx-auto my-2 print-page print:border-none print:shadow-none print:p-0 print:my-0 print:bg-white`}>
@@ -1361,71 +1468,168 @@ function PaginatedSinglePrintPage({
           </div>
         </div>
 
-        {/* Elegant Grouped Articles Table */}
-        <div className="mb-2">
-          <table className={`w-full text-left border-collapse border-b border-app-border ${totalRolls > 28 ? 'text-[9.5px]' : 'text-[10.5px]'}`}>
-            <thead>
-              <tr className={`border-b-2 border-app-border ${totalRolls > 28 ? 'text-[9px]' : 'text-[10px]'} text-app-text uppercase font-bold tracking-wider`}>
-                <th className={`${totalRolls > 28 ? 'py-0.5 px-1' : 'py-1 px-1'} w-2/5`}>
-                  {hasRollNo ? 'Nº ROLLO' : 'ITEM'}
-                </th>
-                {showLot && <th className={`${totalRolls > 28 ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-24`}>LOTE</th>}
-                {showPartida && <th className={`${totalRolls > 28 ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-28`}>PARTIDA</th>}
-                {hasTono && <th className={`${totalRolls > 28 ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-20`}>TONO</th>}
-                {hasWidth && <th className={`${totalRolls > 28 ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-20`}>ANCHO</th>}
-                {hasWeight && <th className={`${totalRolls > 28 ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-20`}>PESO</th>}
-                <th className={`${totalRolls > 28 ? 'py-0.5 px-1' : 'py-1 px-1'} text-right w-32`}>METRAJE</th>
-              </tr>
-            </thead>
-            <tbody>
-              {block.map((row, idx) => {
-                const isDense = totalRolls > 28;
-                const rowPaddingClass = isDense ? 'py-[2px] px-1' : totalRolls <= 18 ? 'py-1.5 px-1' : 'py-1 px-1';
+        {/* Elegant Grouped Articles Tables - Each Fabric has its own tailored column headers */}
+        <div className="mb-2 space-y-3">
+          {articleSectionsInBlock.map((section, sIdx) => {
+            const { config } = section;
+            const isDense = totalRolls > 28;
 
-                if (row.type === 'header') {
-                  return (
-                    <tr key={`h-${row.articleId}-${idx}`} className="border-b border-app-border font-bold bg-app-bg/25 print:bg-white">
-                      <td colSpan={colSpanHeader} className={`${isDense ? 'py-0.5 px-1 text-[10px]' : 'py-1 px-1 text-[11px]'} text-app-primary uppercase tracking-tight font-bold`}>
-                        {row.articleName}
+            return (
+              <table
+                key={`${section.articleId}-${sIdx}`}
+                className={`w-full text-left border-collapse border-b border-app-border ${
+                  isDense ? 'text-[9.5px]' : 'text-[10.5px]'
+                }`}
+              >
+                <thead>
+                  {/* Article Name Title Row */}
+                  <tr className="border-b border-app-border font-bold bg-app-bg/25 print:bg-white">
+                    <th
+                      colSpan={config.colSpanHeader}
+                      className={`${
+                        isDense ? 'py-0.5 px-1 text-[10px]' : 'py-1 px-1 text-[11px]'
+                      } text-app-primary uppercase tracking-tight font-bold`}
+                    >
+                      {section.articleName}
+                    </th>
+                  </tr>
+
+                  {/* Specific Column Header Row for this Article */}
+                  <tr
+                    className={`border-b-2 border-app-border ${
+                      isDense ? 'text-[9px]' : 'text-[10px]'
+                    } text-app-text uppercase font-bold tracking-wider`}
+                  >
+                    <th className={`${isDense ? 'py-0.5 px-1' : 'py-1 px-1'} ${
+                      config.showLot || config.showPartida || config.showTono ? 'w-2/5' : 'w-1/2'
+                    }`}>
+                      {config.showRollNo ? 'Nº ROLLO' : 'ITEM'}
+                    </th>
+                    {config.showLot && (
+                      <th className={`${isDense ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-24`}>
+                        LOTE
+                      </th>
+                    )}
+                    {config.showPartida && (
+                      <th className={`${isDense ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-28`}>
+                        PARTIDA
+                      </th>
+                    )}
+                    {config.showTono && (
+                      <th className={`${isDense ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-20`}>
+                        TONO
+                      </th>
+                    )}
+                    {config.showWidth && (
+                      <th className={`${isDense ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-20`}>
+                        ANCHO
+                      </th>
+                    )}
+                    {config.showWeight && (
+                      <th className={`${isDense ? 'py-0.5 px-1' : 'py-1 px-1'} text-center w-20`}>
+                        PESO
+                      </th>
+                    )}
+                    <th className={`${isDense ? 'py-0.5 px-1' : 'py-1 px-1'} text-right w-32`}>
+                      METRAJE
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {section.rolls.map((rollObj, rIdx) => {
+                    const item = rollObj.item;
+                    const rowPaddingClass = isDense
+                      ? 'py-[2px] px-1'
+                      : totalRolls <= 18
+                      ? 'py-1.5 px-1'
+                      : 'py-1 px-1';
+
+                    return (
+                      <tr
+                        key={`r-${item.id || rIdx}`}
+                        className="border-b border-app-border/40 hover:bg-app-bg/10"
+                      >
+                        <td className={`${rowPaddingClass} font-sans tabular-nums font-bold pl-2`}>
+                          {config.showRollNo ? (item.rollNumber || '-') : rollObj.index + 1}
+                        </td>
+                        {config.showLot && (
+                          <td className={`${rowPaddingClass} text-center font-sans tabular-nums`}>
+                            {item.lot || '-'}
+                          </td>
+                        )}
+                        {config.showPartida && (
+                          <td className={`${rowPaddingClass} text-center font-sans tabular-nums`}>
+                            {item.partida || '-'}
+                          </td>
+                        )}
+                        {config.showTono && (
+                          <td
+                            className={`${rowPaddingClass} text-center font-sans font-bold text-app-primary uppercase`}
+                          >
+                            {item.tono || '-'}
+                          </td>
+                        )}
+                        {config.showWidth && (
+                          <td className={`${rowPaddingClass} text-center font-sans tabular-nums`}>
+                            {item.width ? `${formatPrintNumber(item.width)} m` : '-'}
+                          </td>
+                        )}
+                        {config.showWeight && (
+                          <td
+                            className={`${rowPaddingClass} text-center font-sans tabular-nums font-semibold`}
+                          >
+                            {item.weight ? `${formatPrintNumber(item.weight)} kg` : '-'}
+                          </td>
+                        )}
+                        <td className={`${rowPaddingClass} text-right font-sans tabular-nums font-bold`}>
+                          {formatPrintNumber(item.meters)} m
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+
+                {section.footer && (
+                  <tfoot>
+                    <tr
+                      className={`border-b-2 border-app-border font-bold ${
+                        isDense ? 'text-[9.5px]' : 'text-[11px]'
+                      } bg-app-bg/10 print:bg-white`}
+                    >
+                      <td
+                        colSpan={config.colSpanSummary - (config.showWeight ? 1 : 0)}
+                        className={`${
+                          isDense ? 'py-1 px-1' : 'py-1.5 px-1'
+                        } uppercase text-right tracking-tight font-bold text-app-text/75`}
+                      >
+                        {section.articleName} -- Cantidad: {section.footer.groupLength} | Total:
                       </td>
-                    </tr>
-                  );
-                } else if (row.type === 'roll') {
-                  const item = row.item!;
-                  return (
-                    <tr key={`r-${item.id || idx}`} className="border-b border-app-border/40 hover:bg-app-bg/10">
-                      <td className={`${rowPaddingClass} font-sans tabular-nums font-bold pl-2`}>
-                        {hasRollNo ? (item.rollNumber || '-') : ((row.index ?? 0) + 1)}
-                      </td>
-                      {showLot && <td className={`${rowPaddingClass} text-center font-sans tabular-nums`}>{item.lot || '-'}</td>}
-                      {showPartida && <td className={`${rowPaddingClass} text-center font-sans tabular-nums`}>{item.partida || '-'}</td>}
-                      {hasTono && <td className={`${rowPaddingClass} text-center font-sans font-bold text-app-primary uppercase`}>{item.tono || '-'}</td>}
-                      {hasWidth && <td className={`${rowPaddingClass} text-center font-sans tabular-nums`}>{item.width ? `${formatPrintNumber(item.width)} m` : '-'}</td>}
-                      {hasWeight && <td className={`${rowPaddingClass} text-center font-sans tabular-nums font-semibold`}>{item.weight ? `${formatPrintNumber(item.weight)} kg` : '-'}</td>}
-                      <td className={`${rowPaddingClass} text-right font-sans tabular-nums font-bold`}>{formatPrintNumber(item.meters)} m</td>
-                    </tr>
-                  );
-                } else if (row.type === 'footer') {
-                  return (
-                    <tr key={`f-${row.articleId}-${idx}`} className={`border-b-2 border-app-border font-bold ${isDense ? 'text-[9.5px]' : 'text-[11px]'} bg-app-bg/10 print:bg-white`}>
-                      <td colSpan={colSpanSummary - (hasWeight ? 1 : 0)} className={`${isDense ? 'py-1 px-1' : 'py-1.5 px-1'} uppercase text-right tracking-tight font-bold text-app-text/75`}>
-                        {row.articleName} -- Cantidad: {row.groupLength} | Total:
-                      </td>
-                      {hasWeight && (
-                        <td className={`${isDense ? 'py-1 px-1' : 'py-1.5 px-1'} text-center font-sans tabular-nums font-bold text-app-text`}>
-                          {(row.articleTotalWeight ?? 0) > 0 ? `${formatPrintNumber(row.articleTotalWeight)} kg` : '-'}
+                      {config.showWeight && (
+                        <td
+                          className={`${
+                            isDense ? 'py-1 px-1' : 'py-1.5 px-1'
+                          } text-center font-sans tabular-nums font-bold text-app-text`}
+                        >
+                          {section.footer.totalWeight > 0
+                            ? `${formatPrintNumber(section.footer.totalWeight)} kg`
+                            : '-'}
                         </td>
                       )}
-                      <td className={`${isDense ? 'py-1 px-1' : 'py-1.5 px-1'} text-right font-sans tabular-nums text-app-primary font-black`}>
-                        {formatPrintNumber(row.articleTotalMeters)} m
+                      <td
+                        className={`${
+                          isDense ? 'py-1 px-1' : 'py-1.5 px-1'
+                        } text-right font-sans tabular-nums text-app-primary font-black`}
+                      >
+                        {formatPrintNumber(section.footer.totalMeters)} m
                       </td>
                     </tr>
-                  );
-                }
-                return null;
-              })}
-            </tbody>
-          </table>
+                  </tfoot>
+                )}
+              </table>
+            );
+          })}
+        </div>
 
           {/* Grand Totals Section */}
           {isLastPage && (
@@ -1434,7 +1638,6 @@ function PaginatedSinglePrintPage({
               <p className="uppercase tracking-tight font-display text-app-primary">TOTAL METROS: <span className="font-sans tabular-nums font-black text-base">{formatPrintNumber(totalMeters)} m</span></p>
             </div>
           )}
-        </div>
 
         {/* Aviso Importante directly following Totals with cohesive, balanced spacing */}
         {isLastPage && bottomContent}
@@ -1466,13 +1669,24 @@ function CortePrintSheet({
   totalWeight,
   providers
 }: CortePrintSheetProps) {
-  const firstItemProviderId = packingList.items[0]?.providerId;
-  const activeProvider = providers.find(p => p.id === firstItemProviderId) || null;
   const omitted = packingList.omittedFields || [];
 
-  const showLot = (activeProvider ? activeProvider.hasLot : true) && !omitted.includes('lot');
-  const showPartida = (activeProvider ? activeProvider.hasPartida : true) && !omitted.includes('partida');
-  const hasTono = (activeProvider ? !!activeProvider.hasTono : false) && !omitted.includes('tono');
+  const anyProviderHasLot = packingList.items.some(i => {
+    const prov = providers.find(p => p.id === i.providerId);
+    return (prov ? prov.hasLot : true) || !!i.lot;
+  });
+  const anyProviderHasPartida = packingList.items.some(i => {
+    const prov = providers.find(p => p.id === i.providerId);
+    return (prov ? prov.hasPartida : true) || !!i.partida;
+  });
+  const anyProviderHasTono = packingList.items.some(i => {
+    const prov = providers.find(p => p.id === i.providerId);
+    return (prov ? !!prov.hasTono : false) || (!!i.tono && i.tono !== '-');
+  });
+
+  const showLot = anyProviderHasLot && !omitted.includes('lot');
+  const showPartida = anyProviderHasPartida && !omitted.includes('partida');
+  const hasTono = anyProviderHasTono && !omitted.includes('tono');
 
   return (
     <div translate="no" className="notranslate ticket-perforated bg-app-surface text-app-text px-6 py-4 border border-app-border rounded-xl shadow-lg font-sans max-w-3xl mx-auto my-2 h-[296mm] max-h-[296mm] flex flex-col justify-between print-page print:border-none print:shadow-none print:p-0 print:my-0 print:bg-white box-border">

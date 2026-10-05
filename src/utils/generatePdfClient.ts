@@ -202,17 +202,25 @@ export async function generatePdfFromElement(
     clone.style.display = 'flex';
     clone.style.flexDirection = 'column';
     clone.style.justifyContent = 'space-between';
-    halves.forEach((half) => {
+    halves.forEach((half, idx) => {
       half.style.width = '100%';
-      half.style.height = '545px';
-      half.style.minHeight = '545px';
-      half.style.maxHeight = '545px';
+      half.style.height = '560px';
+      half.style.minHeight = '560px';
+      half.style.maxHeight = '560px';
       half.style.display = 'flex';
       half.style.flexDirection = 'column';
       half.style.justifyContent = 'center';
       half.style.alignItems = 'center';
       half.style.boxSizing = 'border-box';
       half.style.overflow = 'visible';
+      // Shift halves slightly towards the center to shorten the middle gap without altering outer margins
+      if (idx === 0) {
+        half.style.paddingTop = '14px';
+        half.style.paddingBottom = '0px';
+      } else {
+        half.style.paddingTop = '0px';
+        half.style.paddingBottom = '14px';
+      }
     });
   } else if (halves.length === 1) {
     clone.style.height = 'auto';

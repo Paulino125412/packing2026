@@ -60,6 +60,94 @@ export const isAlphanumericRollCode = (val: string): boolean => {
   return hasDigits && hasLetters && withoutUnits.length >= 3 && withoutUnits.length <= 35;
 };
 
+// Helper to normalize header text for robust matching
+export const normalizeHeaderStr = (raw: string): string => {
+  return raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents (número -> numero)
+    .replace(/[°º#.:;,\(\)\[\]\/\-_]/g, ' ') // replace symbols with space
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+// Helper to identify observation, notes, or totals/summary lines in pasted spreadsheets
+export const isObservationOrSummaryLine = (lineStr: string): boolean => {
+  const trimmed = lineStr.trim();
+  if (!trimmed) return false;
+
+  const norm = normalizeHeaderStr(trimmed);
+
+  // 1. Explicit observation / notes prefix or standalone keyword
+  if (/^(observaciones|observacion|observ|obs|notas|nota|comentarios|comentario|anotaciones|anotacion)\b/.test(norm)) {
+    return true;
+  }
+
+  // Also check if the first cell (before tab, semicolon, or multi-space) indicates an observation or note
+  const firstCell = trimmed.split(/[\t;]|\s{2,}/)[0]?.trim() || '';
+  const normFirst = normalizeHeaderStr(firstCell);
+  if (/^(observaciones|observacion|observ|obs|notas|nota|comentarios|comentario|anotaciones|anotacion)\b/.test(normFirst)) {
+    return true;
+  }
+
+  // 2. Summary or Totals lines (e.g. "TOTAL METROS: 1200", "TOTAL GENERAL", "SUBTOTAL:", "SUMA:")
+  if (/^(total|totales|subtotal|suma|resumen|promedio)\b/.test(norm) ||
+      /^(total|totales|subtotal|suma|resumen|promedio)\b/.test(normFirst)) {
+    return true;
+  }
+
+  return false;
+};
+
+// Classifies a header cell name into a recognized field
+export const classifyHeaderCell = (cellStr: string): 'lot' | 'partida' | 'tono' | 'width' | 'weight' | 'meters' | 'rollNo' | 'ignore' | null => {
+  const norm = normalizeHeaderStr(cellStr);
+  if (!norm) return null;
+
+  // 0. OBSERVACIONES / NOTAS / COMENTARIOS -> explicitly marked as 'ignore'
+  if (/\b(observaciones|observacion|observ|obs|notas|nota|comentarios|comentario|anotaciones|anotacion)\b/.test(norm)) {
+    return 'ignore';
+  }
+
+  // 1. LOTE / LOT (Checked BEFORE generic roll/number so "n° lote", "nro lote", "lote n°" matches lote)
+  if (/\b(lote|lot|batch)\b/.test(norm)) {
+    return 'lot';
+  }
+
+  // 2. PARTIDA (Checked BEFORE generic roll/number so "n° partida", "partida n°" matches partida)
+  if (/\b(partida|part|tintoreria|tintor|despacho)\b/.test(norm) || norm === 'op' || norm === 'ot') {
+    return 'partida';
+  }
+
+  // 3. TONO / COLOR
+  if (/\b(tono|color|shad|shade|matiz|variante)\b/.test(norm) || norm === 'ton') {
+    return 'tono';
+  }
+
+  // 4. ANCHO / WIDTH
+  if (/\b(ancho|width)\b/.test(norm) || norm === 'anc') {
+    return 'width';
+  }
+
+  // 5. PESO / WEIGHT (kg, kilos, bruto, neto)
+  if (/\b(peso|weight|kilo|kilos|kg|kgs|bruto|neto|pso)\b/.test(norm)) {
+    return 'weight';
+  }
+
+  // 6. METRAJE / METROS / CANTIDAD
+  if (/\b(metraje|metros|metro|metr|mts|mtr|mtrs|cant|cantidad|qty|size|long|longitud|largo|medida|yds|yardas|yarda)\b/.test(norm) || norm === 'm' || norm === 'mt') {
+    return 'meters';
+  }
+
+  // 7. Nº ROLLO / ITEM
+  if (/\b(rollo|rollos|roll|rolls|item|id|pieza|piezas|pza|pzas|bulto|bultos|bult|cod|codigo|etiqueta|tag|serial|barcode|barra|ticket)\b/.test(norm) ||
+      /^(n|no|nro|num|numero)$/.test(norm) || /^(#|n°|nº|nro\.|no\.)$/.test(cellStr.trim().toLowerCase())) {
+    return 'rollNo';
+  }
+
+  return null;
+};
+
 // Helper to parse and classify Excel columns based on content heuristics and provider configuration
 export const resolveColumnsForText = (
   text: string, 
@@ -67,7 +155,24 @@ export const resolveColumnsForText = (
   manualMapping?: { [colIdx: number]: string }
 ) => {
   const rawLines = text.split(/[\r\n]+/);
-  const lines = rawLines.map(l => l.trim()).filter(Boolean);
+
+  // Extract observation text if present in any line
+  let excludedObservationLine: string | undefined;
+  for (const rawL of rawLines) {
+    const trimmed = rawL.trim();
+    if (!trimmed) continue;
+    const norm = normalizeHeaderStr(trimmed);
+    if (/^(observaciones|observacion|observ|obs|notas|nota|comentarios|comentario|anotaciones|anotacion)\b/.test(norm)) {
+      const cleaned = trimmed.replace(/^(observaciones|observacion|observ|obs|notas|nota|comentarios|comentario|anotaciones|anotacion)\s*[:.-]?\s*/i, '').trim();
+      excludedObservationLine = cleaned || trimmed;
+      break;
+    }
+  }
+
+  // Filter out empty lines and any observation/summary lines so they never contaminate the roll rows
+  const lines = rawLines
+    .map(l => l.trim())
+    .filter(l => Boolean(l) && !isObservationOrSummaryLine(l));
   
   let rollColIdx = -1;
   let metersColIdx = -1;
@@ -90,58 +195,424 @@ export const resolveColumnsForText = (
       startLineIndex,
       lines,
       colHeaders: [] as string[],
-      splitIntoColumns: (lineStr: string) => [] as string[]
+      splitIntoColumns: (lineStr: string) => [] as string[],
+      excludedObservationLine
     };
   }
 
   const splitIntoColumns = (lineStr: string): string[] => {
     if (lineStr.includes('\t')) {
-      return lineStr.split('\t').map(c => c.trim());
+      return lineStr.split('\t').map(c => c.trim().replace(/^["']|["']$/g, ''));
     } else if (lineStr.includes(';')) {
-      return lineStr.split(';').map(c => c.trim());
+      return lineStr.split(';').map(c => c.trim().replace(/^["']|["']$/g, ''));
     } else if (lineStr.includes('|')) {
-      return lineStr.split('|').map(c => c.trim()).filter(Boolean);
+      return lineStr.split('|').map(c => c.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
     } else if (/\s{2,}/.test(lineStr)) {
-      return lineStr.split(/\s{2,}/).map(c => c.trim()).filter(Boolean);
+      return lineStr.split(/\s{2,}/).map(c => c.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
     } else {
-      return lineStr.split(/\s+/).map(c => c.trim()).filter(Boolean);
+      return lineStr.split(/\s+/).map(c => c.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
     }
   };
 
   // 1. Check if first line is a header row
-  let firstLineCols = splitIntoColumns(lines[0]).map(c => c.toLowerCase().trim());
-  const isHeader = firstLineCols.some(word => 
-    /^(rollo|rollos|roll|rolls|nro|nro\.|n°|nº|n°\.|nº\.|no\.|no|num|num\.|núm|núm\.|numero|número|item|id|piez|pieza|piezas|pza|pzas|bulto|bultos|bult|cod|codigo|código|etiqueta|tag|serial|barcode|barra|ticket|#|n[o°º]?\.?\s*rollo|roll\s*n[o°º]?\.?)$/i.test(word) ||
-    /^(metraje|metraje\s*\(?m\)?|metros|metro|metr|metr\.|cant|cant\.|cantidad|qty|size|long|longitud|largo|medida|mts|mts\.|mtr|mtr\.|mtrs|mtrs\.|yds|yardas|yarda|mt|m)$/i.test(word) ||
-    /^(lote|lot|batch|lote\.|lot\.|n[o°º]?\.?\s*lote)$/i.test(word) ||
-    /^(partida|part|part\.|partida\s*[\/\-]\s*tintoreria|despacho|tintoreria|tintorería|op|ot|n[o°º]?\.?\s*partida)$/i.test(word) ||
-    /^(t|ton|ton\.|tono|tono\.|color|col|col\.|tono\s*[\/\-]\s*color|color\s*[\/\-]\s*tono|shad|shade|matiz|variante)$/i.test(word) ||
-    /^(ancho|ancho\s*\(?m\)?|width|anchura|anc|anc\.)$/i.test(word) ||
-    /^(peso|peso\s*\(?kg\)?|peso\s*bruto|peso\s*neto|weight|kg|kgs|kilos|kilo|pso|gross|net|bruto|neto|p\.bruto|p\.neto)$/i.test(word)
-  );
+  const firstLineCols = splitIntoColumns(lines[0]);
+  const isHeader = firstLineCols.some(col => {
+    const c = classifyHeaderCell(col);
+    return c !== null && c !== 'ignore';
+  }) && firstLineCols.some(col => parseSanitizedNumeric(col) === null && /[a-zA-Z#°º]/.test(col));
+
+  const explicitlyIgnoredCols = new Set<number>();
 
   if (isHeader) {
     startLineIndex = 1;
-    firstLineCols.forEach((col, idx) => {
-      if (/peso|weight|kg|kilo|pso|bruto|neto/i.test(col)) {
-        weightColIdx = idx;
-      } else if (/metr|cant|qty|size|long|mts|mtr|yds|yard|^mt$|^m$|medida/i.test(col)) {
-        metersColIdx = idx;
-      } else if (/anch|width/i.test(col)) {
-        widthColIdx = idx;
-      } else if (/^(#|no|no\.)$/i.test(col) || /roll|nro|n°|nº|num|núm|item|id|piez|pza|bult|cod|etiquet|tag|serial|ticket/i.test(col)) {
-        rollColIdx = idx;
-      } else if (/lote|lot|batch/i.test(col)) {
-        lotColIdx = idx;
-      } else if (/part|tintor|despacho|op|ot/i.test(col)) {
-        partidaColIdx = idx;
-      } else if (/tono|color|col|shad|matiz|variante|^t$|^ton$/i.test(col)) {
-        tonoColIdx = idx;
+    firstLineCols.forEach((colStr, idx) => {
+      const detected = classifyHeaderCell(colStr);
+      if (detected === 'lot' && lotColIdx === -1) lotColIdx = idx;
+      else if (detected === 'partida' && partidaColIdx === -1) partidaColIdx = idx;
+      else if (detected === 'tono' && tonoColIdx === -1) tonoColIdx = idx;
+      else if (detected === 'width' && widthColIdx === -1) widthColIdx = idx;
+      else if (detected === 'weight' && weightColIdx === -1) weightColIdx = idx;
+      else if (detected === 'meters' && metersColIdx === -1) metersColIdx = idx;
+      else if (detected === 'rollNo' && rollColIdx === -1) rollColIdx = idx;
+      else if (detected === 'ignore') {
+        explicitlyIgnoredCols.add(idx);
       }
     });
   }
 
-  // 2. If manual mapping is provided, apply it and override auto-detected headers
+  // 2. Intelligent Heuristic Column Profiling for unassigned active columns
+  const dataLines = lines.slice(startLineIndex);
+  if (dataLines.length > 0) {
+    const sampleRows: string[][] = [];
+    for (let i = 0; i < Math.min(dataLines.length, 30); i++) {
+      const cols = splitIntoColumns(dataLines[i]);
+      if (cols.length > 0) {
+        sampleRows.push(cols);
+      }
+    }
+
+    if (sampleRows.length > 0) {
+      const maxColsCount = Math.max(...sampleRows.map(r => r.length));
+      
+      interface ColStat {
+        index: number;
+        rowCount: number;
+        isNumeric: boolean;
+        allNumeric: boolean;
+        numericCount: number;
+        avgVal: number;
+        minVal: number;
+        maxVal: number;
+        avgLength: number;
+        avgDigits: number;
+        avgLetters: number;
+        hasLetters: boolean;
+        hasDecimals: boolean;
+        decimalCount: number;
+        decimalRatio: number;
+        hasUnitsMeters: boolean;
+        hasUnitsKg: boolean;
+        isSequential: boolean;
+        uniqueRatio: number;
+        alphanumericRollCount: number;
+      }
+
+      const colAnalysis: ColStat[] = [];
+
+      for (let colIdx = 0; colIdx < maxColsCount; colIdx++) {
+        const vals = sampleRows
+          .map(r => r[colIdx])
+          .filter(v => v !== undefined && v !== '');
+
+        let numericCount = 0;
+        let sum = 0;
+        let min = Infinity;
+        let max = -Infinity;
+        let totalLength = 0;
+        let totalDigits = 0;
+        let totalLetters = 0;
+        let decimalCount = 0;
+        let unitsMetersCount = 0;
+        let unitsKgCount = 0;
+        let alphanumericRollCount = 0;
+        const numericSeries: number[] = [];
+
+        vals.forEach(v => {
+          const cleanedVal = v.trim();
+          totalLength += cleanedVal.length;
+          const digits = cleanedVal.replace(/[^0-9]/g, '').length;
+          totalDigits += digits;
+          const letters = cleanedVal.replace(/[^a-zA-Z]/g, '').length;
+          totalLetters += letters;
+
+          if (/\b(m|mts|mt|mtrs|mtr|yd|yds)\b/i.test(cleanedVal) || /(?<=\d)(m|mts|mt|mtrs|mtr|yd|yds)$/i.test(cleanedVal)) {
+            unitsMetersCount++;
+          }
+          if (/\b(kg|kgs|kilos|kilo)\b/i.test(cleanedVal) || /(?<=\d)(kg|kgs|kilos|kilo)$/i.test(cleanedVal)) {
+            unitsKgCount++;
+          }
+
+          if (isAlphanumericRollCode(cleanedVal)) {
+            alphanumericRollCount++;
+          }
+
+          const n = parseSanitizedNumeric(cleanedVal);
+          if (n !== null) {
+            numericCount++;
+            sum += n;
+            numericSeries.push(n);
+            if (n < min) min = n;
+            if (n > max) max = n;
+            
+            // Check if value has decimals
+            if (n % 1 !== 0 || cleanedVal.includes('.') || cleanedVal.includes(',')) {
+              decimalCount++;
+            }
+          }
+        });
+
+        let isSequential = false;
+        if (numericSeries.length >= 3) {
+          isSequential = true;
+          for (let sIdx = 1; sIdx < numericSeries.length; sIdx++) {
+            if (numericSeries[sIdx] - numericSeries[sIdx - 1] !== 1) {
+              isSequential = false;
+              break;
+            }
+          }
+        }
+
+        const uniqueVals = new Set(vals.map(v => v.trim()));
+        const uniqueRatio = vals.length > 0 ? uniqueVals.size / vals.length : 0;
+
+        colAnalysis.push({
+          index: colIdx,
+          rowCount: vals.length,
+          isNumeric: vals.length > 0 && numericCount > vals.length * 0.4,
+          allNumeric: vals.length > 0 && numericCount === vals.length,
+          numericCount,
+          avgVal: numericCount > 0 ? sum / numericCount : 0,
+          minVal: min === Infinity ? 0 : min,
+          maxVal: max === -Infinity ? 0 : max,
+          avgLength: vals.length > 0 ? totalLength / vals.length : 0,
+          avgDigits: vals.length > 0 ? totalDigits / vals.length : 0,
+          avgLetters: vals.length > 0 ? totalLetters / vals.length : 0,
+          hasLetters: totalLetters > 0,
+          hasDecimals: decimalCount > 0,
+          decimalCount,
+          decimalRatio: vals.length > 0 ? decimalCount / vals.length : 0,
+          hasUnitsMeters: unitsMetersCount > 0,
+          hasUnitsKg: unitsKgCount > 0,
+          isSequential,
+          uniqueRatio,
+          alphanumericRollCount
+        });
+      }
+
+      const assignedCols = new Set<number>(explicitlyIgnoredCols);
+      if (metersColIdx !== -1) assignedCols.add(metersColIdx);
+      if (rollColIdx !== -1) assignedCols.add(rollColIdx);
+      if (lotColIdx !== -1) assignedCols.add(lotColIdx);
+      if (partidaColIdx !== -1) assignedCols.add(partidaColIdx);
+      if (tonoColIdx !== -1) assignedCols.add(tonoColIdx);
+      if (widthColIdx !== -1) assignedCols.add(widthColIdx);
+      if (weightColIdx !== -1) assignedCols.add(weightColIdx);
+
+      // =========================================================================
+      // STEP 1: Assign Roll Number (Nº Rollo) if unassigned
+      // =========================================================================
+      if (rollColIdx === -1 && (pConfig?.hasRollNo ?? true)) {
+        // Priority 1A: Alphanumeric roll code (e.g. "3B04067940", "R-101")
+        const alphaRollCand = colAnalysis.find(col =>
+          !assignedCols.has(col.index) &&
+          col.alphanumericRollCount >= Math.max(1, col.rowCount * 0.4) &&
+          col.uniqueRatio >= 0.5 &&
+          col.avgLength >= 3
+        );
+
+        if (alphaRollCand) {
+          rollColIdx = alphaRollCand.index;
+          assignedCols.add(alphaRollCand.index);
+        } else {
+          // Priority 1B: Sequential integers without decimals (e.g. 1, 2, 3, 4...)
+          const seqRollCand = colAnalysis.find(col =>
+            !assignedCols.has(col.index) &&
+            col.isSequential &&
+            !col.hasDecimals &&
+            col.minVal <= 1000
+          );
+
+          if (seqRollCand) {
+            rollColIdx = seqRollCand.index;
+            assignedCols.add(seqRollCand.index);
+          } else {
+            // Priority 1C: Column 0 pure integer without decimals if another column has measurements
+            const firstColCand = colAnalysis.find(col =>
+              !assignedCols.has(col.index) &&
+              col.index === 0 &&
+              col.isNumeric &&
+              !col.hasDecimals &&
+              col.uniqueRatio >= 0.7 &&
+              colAnalysis.some(c => c.index !== 0 && c.isNumeric && c.avgVal >= 5)
+            );
+
+            if (firstColCand) {
+              rollColIdx = firstColCand.index;
+              assignedCols.add(firstColCand.index);
+            }
+          }
+        }
+      }
+
+      // =========================================================================
+      // STEP 2: Assign Width (ancho) if unassigned
+      // =========================================================================
+      if (widthColIdx === -1) {
+        const widthCandidate = colAnalysis.find(col => 
+          !assignedCols.has(col.index) && 
+          col.isNumeric && 
+          col.numericCount >= Math.max(1, col.rowCount * 0.6) &&
+          col.avgVal >= 0.8 && 
+          col.avgVal <= 3.2 && 
+          (col.maxVal - col.minVal) <= 0.8 &&
+          !col.hasUnitsKg &&
+          (pConfig?.hasWidth || maxColsCount >= 4)
+        );
+        if (widthCandidate) {
+          widthColIdx = widthCandidate.index;
+          assignedCols.add(widthCandidate.index);
+        }
+      }
+
+      // =========================================================================
+      // STEP 3: Assign Tono / Color if unassigned
+      // =========================================================================
+      const isSanJacinto = isSanJacintoProvider(pConfig);
+      if (tonoColIdx === -1) {
+        // San Jacinto specific tone detection: prioritize columns with A, B, C, D or -
+        if (isSanJacinto) {
+          const sanJacintoTonoCandidate = colAnalysis.find(col => {
+            if (assignedCols.has(col.index)) return false;
+            let matchCount = 0;
+            let totalNonEmpty = 0;
+            for (const l of lines.slice(startLineIndex)) {
+              const cols = splitIntoColumns(l);
+              const raw = (cols[col.index] || '').trim().toUpperCase();
+              if (raw) {
+                totalNonEmpty++;
+                if (['A', 'B', 'C', 'D', '-'].includes(raw)) {
+                  matchCount++;
+                }
+              }
+            }
+            return totalNonEmpty > 0 && (matchCount / totalNonEmpty >= 0.4);
+          });
+          if (sanJacintoTonoCandidate) {
+            tonoColIdx = sanJacintoTonoCandidate.index;
+            assignedCols.add(sanJacintoTonoCandidate.index);
+          }
+        }
+
+        // Generic color / tone: text strings like "AZUL", "BLANCO", "LTC"
+        if (tonoColIdx === -1 && (pConfig?.hasTono || isSanJacinto)) {
+          const toneCandidate = colAnalysis.find(col =>
+            !assignedCols.has(col.index) &&
+            col.hasLetters &&
+            col.alphanumericRollCount === 0 &&
+            col.avgLength <= 12 &&
+            !col.hasUnitsMeters &&
+            !col.hasUnitsKg
+          );
+          if (toneCandidate) {
+            tonoColIdx = toneCandidate.index;
+            assignedCols.add(toneCandidate.index);
+          }
+        }
+      }
+
+      // =========================================================================
+      // STEP 4: Accurately Identify Metraje (Meters) vs Lote vs Partida vs Peso
+      // Core Principle:
+      // - Fabric Roll Metraje has precision decimals (52.30, 48.15), varies per roll,
+      //   and rolls range between 10m - 400m (or 1m - 30m for cortes).
+      // - Lote and Partida NEVER have fractional decimals! They are integer identifiers
+      //   (8024, 240801) and are often IDENTICAL across all rows in a batch (minVal === maxVal).
+      // - Metraje is NEVER an identical constant across all rolls in a batch.
+      // =========================================================================
+      if (metersColIdx === -1) {
+        let bestMetersColIdx = -1;
+        let highestMetersScore = -9999;
+
+        const candidateCols = colAnalysis.filter(col => 
+          !assignedCols.has(col.index) && 
+          col.isNumeric && 
+          col.avgVal > 0
+        );
+
+        candidateCols.forEach(col => {
+          let score = 0;
+
+          // 4A. Explicit meter units
+          if (col.hasUnitsMeters) score += 400;
+          if (col.hasUnitsKg) score -= 400;
+
+          // 4B. Decimals: Real roll meters almost always have decimal precision (50.25, 48.10)
+          if (col.hasDecimals) {
+            score += 200 + (col.decimalRatio * 100);
+          } else {
+            // Constant identical value across all rolls without decimals (e.g. 8024) is 100% Lote, NOT metraje!
+            if (col.minVal === col.maxVal && col.rowCount > 1) {
+              score -= 600;
+            }
+          }
+
+          // 4C. Variance and Uniqueness
+          if (col.uniqueRatio <= 0.25 && col.rowCount >= 3) {
+            score -= 350; // Repeated identical values indicate Lot or Partida
+          } else if (col.uniqueRatio >= 0.6) {
+            score += 100;
+          }
+
+          // 4D. Textile roll length ranges (15m to 400m)
+          if (col.avgVal >= 10 && col.avgVal <= 450) {
+            score += 120;
+          } else if (col.avgVal > 800 && !col.hasDecimals) {
+            // Values like 240801, 80245 are dates or sequence batch numbers, NOT meters!
+            score -= 450;
+          }
+
+          if (score > highestMetersScore) {
+            highestMetersScore = score;
+            bestMetersColIdx = col.index;
+          }
+        });
+
+        if (bestMetersColIdx !== -1) {
+          metersColIdx = bestMetersColIdx;
+          assignedCols.add(bestMetersColIdx);
+        }
+      }
+
+      // =========================================================================
+      // STEP 5: Assign remaining columns to Peso, Lote, Partida, Tono
+      // =========================================================================
+      const remainingCols = colAnalysis.filter(c => !assignedCols.has(c.index));
+
+      // Weight (peso): only if provider uses weight OR has explicit kg units, and avg < meters
+      if (weightColIdx === -1 && (pConfig?.hasWeight || remainingCols.some(c => c.hasUnitsKg))) {
+        const weightCand = remainingCols.find(col =>
+          !assignedCols.has(col.index) &&
+          col.isNumeric &&
+          (col.hasUnitsKg || (col.avgVal >= 5 && col.avgVal <= 85 && (metersColIdx === -1 || col.avgVal < (colAnalysis[metersColIdx]?.avgVal || 100))))
+        );
+        if (weightCand) {
+          weightColIdx = weightCand.index;
+          assignedCols.add(weightCand.index);
+        }
+      }
+
+      // Lote candidate: columns with constant integers (minVal === maxVal), lot codes, or uniqueRatio <= 0.5
+      if (lotColIdx === -1 && (pConfig?.hasLot ?? true)) {
+        const lotCand = remainingCols.find(col =>
+          !assignedCols.has(col.index) &&
+          (col.minVal === col.maxVal || col.uniqueRatio <= 0.5 || col.avgVal > 300 || !col.hasDecimals)
+        );
+        if (lotCand) {
+          lotColIdx = lotCand.index;
+          assignedCols.add(lotCand.index);
+        }
+      }
+
+      // Partida candidate
+      if (partidaColIdx === -1 && pConfig?.hasPartida) {
+        const partidaCand = remainingCols.find(col => !assignedCols.has(col.index));
+        if (partidaCand) {
+          partidaColIdx = partidaCand.index;
+          assignedCols.add(partidaCand.index);
+        }
+      }
+
+      // Fallback assignment for any leftover column
+      remainingCols.forEach(col => {
+        if (assignedCols.has(col.index)) return;
+        if (lotColIdx === -1 && (pConfig?.hasLot ?? true)) {
+          lotColIdx = col.index;
+          assignedCols.add(col.index);
+        } else if (partidaColIdx === -1 && pConfig?.hasPartida) {
+          partidaColIdx = col.index;
+          assignedCols.add(col.index);
+        } else if (tonoColIdx === -1 && (pConfig?.hasTono || isSanJacinto)) {
+          tonoColIdx = col.index;
+          assignedCols.add(col.index);
+        } else if (rollColIdx === -1) {
+          rollColIdx = col.index;
+          assignedCols.add(col.index);
+        }
+      });
+    }
+  }
+
+  // 3. If manual mapping is provided, apply user overrides directly
   if (manualMapping) {
     Object.entries(manualMapping).forEach(([colStr, role]) => {
       const idx = parseInt(colStr, 10);
@@ -162,384 +633,6 @@ export const resolveColumnsForText = (
         if (weightColIdx === idx) weightColIdx = -1;
       }
     });
-  } else {
-    // 3. Intelligent Heuristic Column Profiling for unassigned active columns
-    const dataLines = lines.slice(startLineIndex);
-    if (dataLines.length > 0) {
-      const sampleRows: string[][] = [];
-      for (let i = 0; i < Math.min(dataLines.length, 30); i++) {
-        const cols = splitIntoColumns(dataLines[i]);
-        if (cols.length > 0) {
-          sampleRows.push(cols);
-        }
-      }
-
-      if (sampleRows.length > 0) {
-        const maxColsCount = Math.max(...sampleRows.map(r => r.length));
-        
-        interface ColStat {
-          index: number;
-          rowCount: number;
-          isNumeric: boolean;
-          allNumeric: boolean;
-          numericCount: number;
-          avgVal: number;
-          minVal: number;
-          maxVal: number;
-          avgLength: number;
-          avgDigits: number;
-          avgLetters: number;
-          hasLetters: boolean;
-          hasDecimals: boolean;
-          wholeOrHalfCount: number;
-          twoDecimalsCount: number;
-          hasUnitsMeters: boolean;
-          hasUnitsKg: boolean;
-          isSequential: boolean;
-          uniqueRatio: number;
-          alphanumericRollCount: number;
-        }
-
-        const colAnalysis: ColStat[] = [];
-
-        for (let colIdx = 0; colIdx < maxColsCount; colIdx++) {
-          const vals = sampleRows
-            .map(r => r[colIdx])
-            .filter(v => v !== undefined && v !== '');
-
-          let numericCount = 0;
-          let sum = 0;
-          let min = Infinity;
-          let max = -Infinity;
-          let totalLength = 0;
-          let totalDigits = 0;
-          let totalLetters = 0;
-          let decimalCount = 0;
-          let wholeOrHalfCount = 0;
-          let twoDecimalsCount = 0;
-          let unitsMetersCount = 0;
-          let unitsKgCount = 0;
-          let alphanumericRollCount = 0;
-          const numericSeries: number[] = [];
-
-          vals.forEach(v => {
-            const cleanedVal = v.trim();
-            totalLength += cleanedVal.length;
-            const digits = cleanedVal.replace(/[^0-9]/g, '').length;
-            totalDigits += digits;
-            const letters = cleanedVal.replace(/[^a-zA-Z]/g, '').length;
-            totalLetters += letters;
-
-            if (/\b(m|mts|mt|mtrs|mtr|yd|yds)\b/i.test(cleanedVal) || /(?<=\d)(m|mts|mt|mtrs|mtr|yd|yds)$/i.test(cleanedVal)) {
-              unitsMetersCount++;
-            }
-            if (/\b(kg|kgs|kilos|kilo)\b/i.test(cleanedVal) || /(?<=\d)(kg|kgs|kilos|kilo)$/i.test(cleanedVal)) {
-              unitsKgCount++;
-            }
-
-            // Check if value represents an alphanumeric roll code (e.g. "3B04067940", "R-1002", "12A34")
-            if (isAlphanumericRollCode(cleanedVal)) {
-              alphanumericRollCount++;
-            }
-
-            // Parse numeric value strictly: parseSanitizedNumeric returns null if alphabetic chars remain
-            const n = parseSanitizedNumeric(cleanedVal);
-            if (n !== null) {
-              numericCount++;
-              sum += n;
-              numericSeries.push(n);
-              if (n < min) min = n;
-              if (n > max) max = n;
-              
-              if (n !== Math.floor(n)) {
-                decimalCount++;
-              }
-
-              // Check if whole integer (90, 100, 115), half-integer (90.5, 102.5), or tenth (140.2)
-              const remainderHalf = Math.abs(n % 0.5);
-              const remainderTenth = Math.abs(Math.round(n * 10) - n * 10);
-              if (remainderHalf < 0.001 || remainderTenth < 0.001) {
-                wholeOrHalfCount++;
-              } else {
-                twoDecimalsCount++;
-              }
-            }
-          });
-
-          // Check if sequence is consecutive (1, 2, 3, 4... or 101, 102, 103...)
-          let isSequential = false;
-          if (numericSeries.length >= 3) {
-            isSequential = true;
-            for (let sIdx = 1; sIdx < numericSeries.length; sIdx++) {
-              if (numericSeries[sIdx] - numericSeries[sIdx - 1] !== 1) {
-                isSequential = false;
-                break;
-              }
-            }
-          }
-
-          const uniqueVals = new Set(vals.map(v => v.trim()));
-          const uniqueRatio = vals.length > 0 ? uniqueVals.size / vals.length : 0;
-
-          colAnalysis.push({
-            index: colIdx,
-            rowCount: vals.length,
-            isNumeric: vals.length > 0 && numericCount > vals.length * 0.4,
-            allNumeric: vals.length > 0 && numericCount === vals.length,
-            numericCount,
-            avgVal: numericCount > 0 ? sum / numericCount : 0,
-            minVal: min === Infinity ? 0 : min,
-            maxVal: max === -Infinity ? 0 : max,
-            avgLength: vals.length > 0 ? totalLength / vals.length : 0,
-            avgDigits: vals.length > 0 ? totalDigits / vals.length : 0,
-            avgLetters: vals.length > 0 ? totalLetters / vals.length : 0,
-            hasLetters: totalLetters > 0,
-            hasDecimals: decimalCount > 0,
-            wholeOrHalfCount,
-            twoDecimalsCount,
-            hasUnitsMeters: unitsMetersCount > 0,
-            hasUnitsKg: unitsKgCount > 0,
-            isSequential,
-            uniqueRatio,
-            alphanumericRollCount
-          });
-        }
-
-        const assignedCols = new Set<number>();
-        if (metersColIdx !== -1) assignedCols.add(metersColIdx);
-        if (rollColIdx !== -1) assignedCols.add(rollColIdx);
-        if (lotColIdx !== -1) assignedCols.add(lotColIdx);
-        if (partidaColIdx !== -1) assignedCols.add(partidaColIdx);
-        if (tonoColIdx !== -1) assignedCols.add(tonoColIdx);
-        if (widthColIdx !== -1) assignedCols.add(widthColIdx);
-        if (weightColIdx !== -1) assignedCols.add(weightColIdx);
-
-        // =========================================================================
-        // STEP 1: Assign Roll Number (Nº Rollo) if unassigned
-        // Priority 1A: Alphanumeric roll identifiers with letters in between (e.g. "3B04067940")
-        // or prefixes (e.g. "R-1002", "12A34"). These can NEVER be width, metraje, or weight.
-        // =========================================================================
-        if (rollColIdx === -1 && (pConfig?.hasRollNo ?? true)) {
-          const alphaRollCand = colAnalysis.find(col =>
-            !assignedCols.has(col.index) &&
-            col.alphanumericRollCount >= Math.max(1, col.rowCount * 0.4) &&
-            col.uniqueRatio >= 0.6 &&
-            col.avgLength >= 3
-          );
-
-          if (alphaRollCand) {
-            rollColIdx = alphaRollCand.index;
-            assignedCols.add(alphaRollCand.index);
-          } else {
-            // Priority 1B: Sequential pure integers without decimals (e.g. 1, 2, 3, 4...)
-            const seqRollCand = colAnalysis.find(col =>
-              !assignedCols.has(col.index) &&
-              col.isSequential &&
-              !col.hasDecimals &&
-              col.minVal <= 1000
-            );
-
-            if (seqRollCand) {
-              rollColIdx = seqRollCand.index;
-              assignedCols.add(seqRollCand.index);
-            } else {
-              // Priority 1C: Long integer roll IDs/barcodes (5+ digits or >350, NO decimals)
-              const barcodeCand = colAnalysis.find(col =>
-                !assignedCols.has(col.index) &&
-                col.isNumeric &&
-                !col.hasDecimals &&
-                (col.avgDigits >= 5 || col.avgVal > 350) &&
-                col.uniqueRatio >= 0.7
-              );
-
-              if (barcodeCand) {
-                rollColIdx = barcodeCand.index;
-                assignedCols.add(barcodeCand.index);
-              } else {
-                // Priority 1D: Column 0 pure integer fallback if another column has physical measurements
-                const firstColCand = colAnalysis.find(col =>
-                  !assignedCols.has(col.index) &&
-                  col.index === 0 &&
-                  col.isNumeric &&
-                  !col.hasDecimals &&
-                  col.uniqueRatio >= 0.7 &&
-                  colAnalysis.some(c => c.index !== 0 && c.isNumeric && c.avgVal >= 15)
-                );
-
-                if (firstColCand) {
-                  rollColIdx = firstColCand.index;
-                  assignedCols.add(firstColCand.index);
-                }
-              }
-            }
-          }
-        }
-
-        // =========================================================================
-        // STEP 2: Assign Width (ancho) if unassigned and matches 0.8m - 3.2m range with low variance
-        // =========================================================================
-        if (widthColIdx === -1) {
-          const widthCandidate = colAnalysis.find(col => 
-            !assignedCols.has(col.index) && 
-            col.isNumeric && 
-            col.numericCount >= Math.max(1, col.rowCount * 0.6) &&
-            col.avgVal >= 0.8 && 
-            col.avgVal <= 3.2 && 
-            (col.maxVal - col.minVal) <= 0.9 &&
-            !col.hasUnitsKg &&
-            (pConfig?.hasWidth || maxColsCount >= 3)
-          );
-          if (widthCandidate) {
-            widthColIdx = widthCandidate.index;
-            assignedCols.add(widthCandidate.index);
-          }
-        }
-
-        // =========================================================================
-        // STEP 3: Discriminate Metraje (Meters) vs Peso (Weight)
-        // Textile Physics Rule: Metraje is ALWAYS significantly greater than Peso (Metraje > Peso).
-        // Standard rolls: Meters ~ 40m - 500m, Weight ~ 12kg - 85kg.
-        // =========================================================================
-        const unassignedNumericCols = colAnalysis.filter(col => 
-          !assignedCols.has(col.index) && 
-          col.isNumeric && 
-          col.avgVal > 0
-        );
-
-        if (unassignedNumericCols.length > 0) {
-          if (metersColIdx === -1 && weightColIdx === -1 && unassignedNumericCols.length >= 2) {
-            // We have at least two numeric columns to classify into Metraje and Weight
-            // Sort by average value descending (Higher avg = Meters, Lower avg = Weight)
-            const sortedByAvg = [...unassignedNumericCols].sort((a, b) => b.avgVal - a.avgVal);
-            
-            const colHigher = sortedByAvg[0];
-            const colLower = sortedByAvg[1];
-
-            // If one has explicit units, respect units
-            if (colHigher.hasUnitsKg && !colLower.hasUnitsKg) {
-              weightColIdx = colHigher.index;
-              metersColIdx = colLower.index;
-            } else if (colLower.hasUnitsMeters && !colHigher.hasUnitsMeters) {
-              metersColIdx = colLower.index;
-              weightColIdx = colHigher.index;
-            } else {
-              // Higher value is Metraje, lower value is Peso
-              metersColIdx = colHigher.index;
-              weightColIdx = colLower.index;
-            }
-
-            assignedCols.add(metersColIdx);
-            assignedCols.add(weightColIdx);
-          } else if (metersColIdx === -1) {
-            // Pick the best column for meters
-            const sortedForMeters = [...unassignedNumericCols].sort((a, b) => {
-              if (a.hasUnitsMeters && !b.hasUnitsMeters) return -1;
-              if (!a.hasUnitsMeters && b.hasUnitsMeters) return 1;
-              if (a.hasUnitsKg && !b.hasUnitsKg) return 1;
-              if (!a.hasUnitsKg && b.hasUnitsKg) return -1;
-              // Higher average in textile fabric range (20m - 800m) preferred
-              const scoreA = (a.avgVal >= 20 && a.avgVal <= 800 ? 200 : 0) + (a.avgVal > b.avgVal ? 50 : 0);
-              const scoreB = (b.avgVal >= 20 && b.avgVal <= 800 ? 200 : 0) + (b.avgVal > a.avgVal ? 50 : 0);
-              return scoreB - scoreA;
-            });
-
-            metersColIdx = sortedForMeters[0].index;
-            assignedCols.add(metersColIdx);
-          } else if (weightColIdx === -1 && (pConfig?.hasWeight || unassignedNumericCols.length >= 1)) {
-            const weightCand = unassignedNumericCols.find(c => !assignedCols.has(c.index));
-            if (weightCand) {
-              weightColIdx = weightCand.index;
-              assignedCols.add(weightCand.index);
-            }
-          }
-        }
-
-        // =========================================================================
-        // STEP 4: Assign remaining columns to Tono, Partida, Lote
-        // =========================================================================
-        const isSanJacinto = isSanJacintoProvider(pConfig);
-        const remainingCols = colAnalysis.filter(c => !assignedCols.has(c.index));
-
-        // San Jacinto specific tone detection: prioritize columns with A, B, C, D or -
-        if (isSanJacinto && tonoColIdx === -1) {
-          const sanJacintoTonoCandidate = remainingCols.find(col => {
-            const linesSlice = lines.slice(startLineIndex);
-            let matchCount = 0;
-            let totalNonEmpty = 0;
-            for (const l of linesSlice) {
-              const cols = splitIntoColumns(l);
-              const raw = (cols[col.index] || '').trim().toUpperCase();
-              if (raw) {
-                totalNonEmpty++;
-                if (['A', 'B', 'C', 'D', '-'].includes(raw)) {
-                  matchCount++;
-                }
-              }
-            }
-            return totalNonEmpty > 0 && (matchCount / totalNonEmpty >= 0.4);
-          });
-          if (sanJacintoTonoCandidate) {
-            tonoColIdx = sanJacintoTonoCandidate.index;
-            assignedCols.add(sanJacintoTonoCandidate.index);
-          }
-        }
-
-        remainingCols.forEach(col => {
-          if (assignedCols.has(col.index)) return;
-
-          // Priority 4A: Lot candidate if provider tracks lot and values look like short lot codes (<= 8 chars)
-          if (lotColIdx === -1 && pConfig?.hasLot && (!pConfig?.hasTono || col.avgDigits === 0)) {
-            if (col.avgLength <= 8) {
-              lotColIdx = col.index;
-              assignedCols.add(col.index);
-              return;
-            }
-          }
-
-          // Priority 4B: Tono / Color candidate (letters like "LTC", "AZUL", "NEGRO", "A", "B")
-          if (tonoColIdx === -1 && (isSanJacinto || pConfig?.hasTono || (!pConfig?.hasLot && !pConfig?.hasPartida))) {
-            if (col.hasLetters || col.avgLength <= 6) {
-              tonoColIdx = col.index;
-              assignedCols.add(col.index);
-              return;
-            }
-          }
-
-          // Priority 4C: Partida candidate (4 to 8 digits numeric/alphanumeric)
-          if (partidaColIdx === -1 && pConfig?.hasPartida) {
-            if (col.avgDigits >= 4 && col.avgDigits <= 8) {
-              partidaColIdx = col.index;
-              assignedCols.add(col.index);
-              return;
-            }
-          }
-
-          // Priority 4D: Lot candidate (short code <= 8 chars)
-          if (lotColIdx === -1 && pConfig?.hasLot) {
-            if (col.avgLength <= 8) {
-              lotColIdx = col.index;
-              assignedCols.add(col.index);
-              return;
-            }
-          }
-
-          // Default fallback assignment
-          if (tonoColIdx === -1 && pConfig?.hasTono) {
-            tonoColIdx = col.index;
-            assignedCols.add(col.index);
-          } else if (lotColIdx === -1 && pConfig?.hasLot) {
-            lotColIdx = col.index;
-            assignedCols.add(col.index);
-          } else if (partidaColIdx === -1 && pConfig?.hasPartida) {
-            partidaColIdx = col.index;
-            assignedCols.add(col.index);
-          } else if (rollColIdx === -1) {
-            rollColIdx = col.index;
-            assignedCols.add(col.index);
-          }
-        });
-      }
-    }
   }
 
   // Build column headers mapping for UI table preview
@@ -578,7 +671,8 @@ export const resolveColumnsForText = (
     startLineIndex,
     lines,
     colHeaders,
-    splitIntoColumns
+    splitIntoColumns,
+    excludedObservationLine
   };
 };
 
@@ -600,15 +694,6 @@ export default function ExcelPasteParser({
   const [text, setText] = useState('');
   const [manualColRoles, setManualColRoles] = useState<{ [colIdx: number]: string }>({});
   const [reassignedNotice, setReassignedNotice] = useState<string | null>(null);
-
-  const handleProcess = () => {
-    if (!text.trim()) return;
-    const hasManual = Object.keys(manualColRoles).length > 0;
-    onProcess(text, hasManual ? manualColRoles : undefined);
-    setText('');
-    setManualColRoles({});
-    setReassignedNotice(null);
-  };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter') {
@@ -656,6 +741,22 @@ export default function ExcelPasteParser({
     if (colIdx === previewRes.widthColIdx) return 'width';
     if (colIdx === previewRes.weightColIdx) return 'weight';
     return 'ignore';
+  };
+
+  const handleProcess = () => {
+    if (!text.trim()) return;
+    if (hasManual && previewRes) {
+      const fullEffectiveRoles: { [colIdx: number]: string } = {};
+      for (let c = 0; c < previewRes.colHeaders.length; c++) {
+        fullEffectiveRoles[c] = getColCurrentRole(c);
+      }
+      onProcess(text, fullEffectiveRoles);
+    } else {
+      onProcess(text);
+    }
+    setText('');
+    setManualColRoles({});
+    setReassignedNotice(null);
   };
 
   const ROLE_LABELS: { [key: string]: string } = {
@@ -845,6 +946,7 @@ export default function ExcelPasteParser({
               <span>{reassignedNotice}</span>
             </div>
           )}
+
 
           {/* Quick Pre-Processing Live Summary */}
           {previewStats && previewStats.validRollsCount > 0 && (

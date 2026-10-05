@@ -62,30 +62,23 @@ export default function ArticleGroupSection({
   onSwitchToCorte,
   onAddScannedRoll
 }: ArticleGroupSectionProps) {
-  const groupEffectiveProviderId = group.providerId || formProviderId;
-  const pConfig = providers.find(p => p.id === groupEffectiveProviderId) || null;
+  const groupEffectiveProviderId = group.providerId;
+  const pConfig = providers.find(p => p.id === groupEffectiveProviderId) || (formProviderId ? providers.find(p => p.id === formProviderId) : null) || null;
   const isExcelOnly = pConfig && (pConfig.hasRollNo ?? true) && pConfig.hasWidth && pConfig.hasWeight;
   const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   const currentArticleObj = articles.find(a => a.id === group.articleId || a.name === group.articleId);
   const effectiveArticleId = currentArticleObj ? currentArticleObj.id : group.articleId;
 
-  const articleOptions = articles
-    .filter(a => 
-      !groupEffectiveProviderId || 
-      a.providerId === groupEffectiveProviderId || 
-      a.id === effectiveArticleId || 
-      a.id === group.articleId || 
-      a.name === group.articleId
-    )
-    .map(a => {
-      const provName = providers.find(p => p.id === a.providerId)?.name || '';
-      return {
-        id: a.id,
-        name: a.name,
-        detail: provName
-      };
-    });
+  // Allow selecting any article from the whole catalog, automatically associating its provider
+  const articleOptions = articles.map(a => {
+    const provName = providers.find(p => p.id === a.providerId)?.name || '';
+    return {
+      id: a.id,
+      name: a.name,
+      detail: provName ? `Tipo: ${provName}` : undefined
+    };
+  });
 
   if (group.articleId && !articleOptions.some(o => o.id === group.articleId || o.id === effectiveArticleId || o.name === group.articleId)) {
     articleOptions.unshift({
@@ -208,7 +201,15 @@ export default function ArticleGroupSection({
               label="Agregar Artículos *"
               placeholder="Buscar o registrar Artículo..."
               value={effectiveArticleId || group.articleId}
-              onChange={val => onGroupFieldChange(group.id, 'articleId', val)}
+              onChange={val => {
+                const selectedArt = articles.find(a => a.id === val || a.name === val);
+                if (selectedArt) {
+                  onGroupFieldChange(group.id, 'providerId', selectedArt.providerId);
+                  onGroupFieldChange(group.id, 'articleId', selectedArt.id);
+                } else {
+                  onGroupFieldChange(group.id, 'articleId', val);
+                }
+              }}
               options={articleOptions}
               addNewText="Agregar Nuevo Artículo"
               onAddNewWithFields={onAddNewArticle}

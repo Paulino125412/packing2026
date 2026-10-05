@@ -12,10 +12,11 @@ interface ClientSellerSelectorProps {
   setSellerId: (id: string) => void;
   sellers: Seller[];
   onAddNewSeller: (name: string, fields: Record<string, string>) => Promise<string>;
-  formProviderId: string;
-  setFormProviderId: (id: string) => void;
-  providers: Provider[];
-  onAddNewProvider: (name: string, fields: Record<string, string>) => Promise<string>;
+  formProviderId?: string;
+  setFormProviderId?: (id: string) => void;
+  providers?: Provider[];
+  onAddNewProvider?: (name: string, fields: Record<string, string>) => Promise<string>;
+  showProviderSelector?: boolean;
 }
 
 export default function ClientSellerSelector({
@@ -29,8 +30,9 @@ export default function ClientSellerSelector({
   onAddNewSeller,
   formProviderId,
   setFormProviderId,
-  providers,
-  onAddNewProvider
+  providers = [],
+  onAddNewProvider,
+  showProviderSelector = false
 }: ClientSellerSelectorProps) {
   return (
     <>
@@ -72,25 +74,27 @@ export default function ClientSellerSelector({
         ]}
       />
 
-      <SearchableCombobox
-        label="Proveedor *"
-        placeholder="Buscar o registrar Proveedor..."
-        value={formProviderId}
-        onChange={setFormProviderId}
-        options={providers.map(p => ({
-          id: p.id,
-          name: p.name,
-          detail: `Lote: ${p.hasLot ? 'SÍ' : 'NO'} | Partida: ${p.hasPartida ? 'SÍ' : 'NO'}`
-        }))}
-        icon={<ShoppingBag size={16} />}
-        addNewText="Registrar como Nuevo Proveedor"
-        onAddNewWithFields={onAddNewProvider}
-        additionalFields={[
-          { key: 'hasLot', label: '¿Lote? (SÍ o NO)', placeholder: 'SÍ (por defecto) o NO' },
-          { key: 'hasPartida', label: '¿Partida? (SÍ o NO)', placeholder: 'SÍ (por defecto) o NO' },
-          { key: 'hasTono', label: '¿Tono? (SÍ o NO)', placeholder: 'SÍ (por defecto) o NO' }
-        ]}
-      />
+      {showProviderSelector && setFormProviderId && onAddNewProvider && (
+        <SearchableCombobox
+          label="Proveedor (Opcional)"
+          placeholder="Buscar o registrar Proveedor..."
+          value={formProviderId || ''}
+          onChange={setFormProviderId}
+          options={providers.map(p => ({
+            id: p.id,
+            name: p.name,
+            detail: `Lote: ${p.hasLot ? 'SÍ' : 'NO'} | Partida: ${p.hasPartida ? 'SÍ' : 'NO'}`
+          }))}
+          icon={<ShoppingBag size={16} />}
+          addNewText="Registrar como Nuevo Proveedor"
+          onAddNewWithFields={onAddNewProvider}
+          additionalFields={[
+            { key: 'hasLot', label: '¿Lote? (SÍ o NO)', placeholder: 'SÍ (por defecto) o NO' },
+            { key: 'hasPartida', label: '¿Partida? (SÍ o NO)', placeholder: 'SÍ (por defecto) o NO' },
+            { key: 'hasTono', label: '¿Tono? (SÍ o NO)', placeholder: 'SÍ (por defecto) o NO' }
+          ]}
+        />
+      )}
     </>
   );
 }

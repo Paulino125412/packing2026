@@ -89,6 +89,7 @@
         "totalMeters": { "type": "number" },
         "totalRollsOrCuts": { "type": "number" },
         "notes": { "type": "string", "maxLength": 500 },
+        "omittedFields": { "type": "array", "maxItems": 20 },
         "appVersion": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },

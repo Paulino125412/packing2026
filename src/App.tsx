@@ -42,6 +42,7 @@ import {
 // Components
 import PackingListForm from './components/PackingListForm';
 import AlertBanner from './components/AlertBanner';
+import { useToast } from './context/ToastContext';
 
 // Lazy-loaded modules for code-splitting
 const PackingListHistory = lazy(() => import('./components/PackingListHistory'));
@@ -55,8 +56,31 @@ const DevRulesMonitor = lazy(() => import('./components/DevRulesMonitor'));
 type AppTab = 'generate' | 'sales_order' | 'catalogs' | 'inventory' | 'history';
 
 export default function App() {
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<AppTab>('generate');
   const [currentOperator, setCurrentOperator] = useState('Paul Almacén');
+
+  // Modo Prueba (Simulación sin guardar en base de datos ni consumir correlativos)
+  const [isTestMode, setIsTestMode] = useState<boolean>(() => {
+    return localStorage.getItem('texflow_test_mode') === 'true';
+  });
+
+  const toggleTestMode = () => {
+    setIsTestMode(prev => {
+      const next = !prev;
+      localStorage.setItem('texflow_test_mode', String(next));
+      if (next) {
+        toast.warning('🧪 MODO PRUEBA ACTIVADO: No se guardará nada en la base de datos ni se alterará ningún correlativo ni inventario.', {
+          title: 'Modo Prueba Activado'
+        });
+      } else {
+        toast.success('Modo normal activado. Las operaciones se registrarán normalmente en la base de datos.', {
+          title: 'Modo Normal Restablecido'
+        });
+      }
+      return next;
+    });
+  };
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('wms-theme') as 'light' | 'dark') || 'light';
   });
@@ -443,6 +467,8 @@ export default function App() {
                 setActiveTab('history');
               }
             }}
+            isTestMode={isTestMode}
+            onToggleTestMode={toggleTestMode}
           />
         );
       case 'history':
@@ -499,6 +525,8 @@ export default function App() {
             sellers={sellers}
             articles={articles}
             currentOperator={currentOperator}
+            isTestMode={isTestMode}
+            onToggleTestMode={toggleTestMode}
           />
         );
       default:
@@ -577,7 +605,26 @@ export default function App() {
         </div>
 
         {/* Mobile Status Indicators */}
-        <div className="px-4 py-3 border-b border-app-border/25 bg-app-surface/20 flex flex-col gap-1.5 shrink-0">
+        <div className="px-4 py-3 border-b border-app-border/25 bg-app-surface/20 flex flex-col gap-2 shrink-0">
+          <button
+            onClick={toggleTestMode}
+            className={`w-full py-2 px-3 rounded-md text-xs font-bold transition flex items-center justify-between cursor-pointer border ${
+              isTestMode
+                ? 'bg-amber-500 text-slate-950 border-amber-600 ring-2 ring-amber-400 font-black'
+                : 'bg-app-surface border-app-border text-app-text/80 hover:bg-app-bg'
+            }`}
+          >
+            <span className="flex items-center gap-1.5">
+              <span>🧪</span>
+              <span className="uppercase tracking-wider">Modo Prueba</span>
+            </span>
+            <span className={`text-[10px] px-2 py-0.5 rounded font-black uppercase ${
+              isTestMode ? 'bg-slate-950 text-amber-300 animate-pulse' : 'bg-app-border/50 text-app-text/60'
+            }`}>
+              {isTestMode ? 'ACTIVO (Quitar)' : 'OFF'}
+            </span>
+          </button>
+
           <div className="flex items-center justify-between text-[11px] font-medium text-app-text/75">
             <span>Servidor de Datos:</span>
             {isLocal ? (
@@ -909,10 +956,10 @@ export default function App() {
       </aside>
 
       {/* Main Container - Structured Workspace (Takes 100% full screen on mobile) */}
-      <div className={`flex-1 min-w-0 bg-app-bg flex flex-col h-full overflow-hidden ${theme === 'dark' ? 'dark' : ''} ${selectedPrintList ? 'no-print' : ''}`}>
+      <div className={`flex-1 min-w-0 bg-app-bg flex flex-col h-full overflow-hidden ${theme === 'dark' ? 'dark' : ''} ${selectedPrintList ? 'no-print' : ''} ${isTestMode ? 'ring-4 ring-amber-500/70 border-l-4 border-amber-500' : ''}`}>
         
         {/* Top Header Bar (no-print) - Static & Compact */}
-        <header className="sticky top-0 z-30 bg-app-surface/95 backdrop-blur-md border-b border-app-border px-3 sm:px-6 py-2.5 sm:py-3.5 flex justify-between items-center gap-2 sm:gap-3 no-print shrink-0 shadow-2xs">
+        <header className={`sticky top-0 z-30 ${isTestMode ? 'bg-amber-500/15 border-b-2 border-amber-500 shadow-md shadow-amber-500/10' : 'bg-app-surface/95 border-b border-app-border'} backdrop-blur-md px-3 sm:px-6 py-2.5 sm:py-3.5 flex justify-between items-center gap-2 sm:gap-3 no-print shrink-0 shadow-2xs transition-colors`}>
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {/* Mobile Hamburger Button */}
             <button
@@ -938,17 +985,46 @@ export default function App() {
               <div className="text-[8px] sm:text-[9px] font-bold text-app-text/50 uppercase tracking-widest truncate">
                 SISTEMA DE CONTROL Y DESPACHOS
               </div>
-              <h2 className="text-sm sm:text-base font-bold text-app-text tracking-tight mt-0.5 truncate">
-                {activeTab === 'generate' && "Nuevo Packing List"}
-                {activeTab === 'sales_order' && "Órdenes de Venta"}
-                {activeTab === 'catalogs' && "Catálogos"}
-                {activeTab === 'inventory' && "Inventario"}
-                {activeTab === 'history' && "Historial de Despachos"}
+              <h2 className="text-sm sm:text-base font-bold text-app-text tracking-tight mt-0.5 truncate flex items-center gap-2">
+                <span>
+                  {activeTab === 'generate' && "Nuevo Packing List"}
+                  {activeTab === 'sales_order' && "Órdenes de Venta"}
+                  {activeTab === 'catalogs' && "Catálogos"}
+                  {activeTab === 'inventory' && "Inventario"}
+                  {activeTab === 'history' && "Historial de Despachos"}
+                </span>
+                {isTestMode && (
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 uppercase tracking-widest animate-pulse">
+                    En Ensayo
+                  </span>
+                )}
               </h2>
             </div>
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Modo Prueba Toggle Button */}
+            <button
+              onClick={toggleTestMode}
+              className={`px-2.5 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[34px] border ${
+                isTestMode
+                  ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 border-amber-600 ring-2 ring-amber-400 shadow-md font-black animate-pulse'
+                  : 'bg-app-surface hover:bg-app-bg text-app-text/75 hover:text-app-text border-app-border'
+              }`}
+              title={isTestMode ? "Modo Prueba ACTIVO (Haga clic para desactivar)" : "Activar Modo Prueba (Para probar sin guardar ni alterar correlativos)"}
+              id="test-mode-toggle-btn"
+            >
+              <span className="text-sm">🧪</span>
+              <span className="text-[10px] sm:text-[11px] uppercase tracking-wider font-extrabold hidden xs:inline">
+                {isTestMode ? 'PRUEBA ACTIVA' : 'MODO PRUEBA'}
+              </span>
+              {isTestMode ? (
+                <span className="h-2 w-2 rounded-full bg-slate-950" />
+              ) : (
+                <span className="text-[9px] font-mono text-app-text/40 hidden sm:inline">OFF</span>
+              )}
+            </button>
+
             {/* Developer Business Rules & Health Monitor */}
             <Suspense fallback={null}>
               <DevRulesMonitor data={{ inventory, packingLists, articles, providers, clients, sellers }} />
@@ -988,6 +1064,30 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        {/* Global Banner for Test Mode */}
+        {isTestMode && (
+          <div className="bg-amber-500 text-slate-950 px-3 sm:px-6 py-2 text-xs font-bold flex items-center justify-between shadow-md border-b-2 border-amber-600 no-print animate-fadeIn z-20 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+              <span className="p-1 bg-slate-950 text-amber-300 rounded text-[10px] sm:text-xs font-mono font-black shrink-0">
+                PRUEBA
+              </span>
+              <span className="font-black uppercase tracking-wider text-[11px] sm:text-xs shrink-0">
+                ESTÁ EN MODO PRUEBA:
+              </span>
+              <span className="font-semibold text-[11px] sm:text-xs truncate">
+                No se guardará en la base de datos ni se alterará ningún correlativo ni inventario.
+              </span>
+            </div>
+            <button
+              onClick={toggleTestMode}
+              className="ml-2 px-3 py-1 bg-slate-950 hover:bg-slate-900 text-amber-300 hover:text-white rounded font-black text-[10px] sm:text-[11px] transition cursor-pointer shrink-0 uppercase tracking-wider shadow-xs"
+              title="Haga clic para volver al modo normal"
+            >
+              Quitar Modo Prueba ✕
+            </button>
+          </div>
+        )}
 
         {/* Content Body Wrapper */}
         <main className="flex-1 min-h-0 p-6 overflow-y-auto space-y-4">

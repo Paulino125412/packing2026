@@ -96,6 +96,7 @@ export interface PackingList {
   createdAt: string;
   omittedFields?: string[];
   appVersion?: string;
+  isTestSimulation?: boolean;
 }
 
 export interface SalesOrderItem {
@@ -136,4 +137,5 @@ export interface SalesOrder {
   createdAt: string;
   updatedAt?: string;
   appVersion?: string;
+  isTestSimulation?: boolean;
 }

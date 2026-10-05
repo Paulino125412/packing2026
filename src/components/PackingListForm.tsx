@@ -5,7 +5,7 @@ import { collection, doc } from 'firebase/firestore';
 import { Plus, Trash2, Calendar, User, ShoppingBag, CheckCircle2, ChevronRight, Hash, Ruler, X, FileText, Layers, Truck, AlertTriangle, Clock, Scissors, Archive } from 'lucide-react';
 import SearchableCombobox from './SearchableCombobox';
 import { FormRollEntry, FormArticleGroup } from './packing-list-form/types';
-import { resolveColumnsForText, parseSanitizedNumeric } from './packing-list-form/ExcelPasteParser';
+import { resolveColumnsForText, parseSanitizedNumeric, isObservationOrSummaryLine } from './packing-list-form/ExcelPasteParser';
 import ClientSellerSelector from './packing-list-form/ClientSellerSelector';
 import ArticleGroupSection from './packing-list-form/ArticleGroupSection';
 import AlertBanner from './AlertBanner';
@@ -28,6 +28,8 @@ interface PackingListFormProps {
   editingPackingList?: PackingList | null;
   isDuplicate?: boolean;
   onCancelEdit?: (goToHistory?: boolean) => void;
+  isTestMode?: boolean;
+  onToggleTestMode?: () => void;
 }
 
 export default function PackingListForm({
@@ -43,7 +45,9 @@ export default function PackingListForm({
   currentOperator,
   editingPackingList = null,
   isDuplicate = false,
-  onCancelEdit
+  onCancelEdit,
+  isTestMode = false,
+  onToggleTestMode
 }: PackingListFormProps) {
   const [packingType, setPackingType] = useState<'nuevo' | 'antiguo' | 'corte'>('nuevo');
   const [clientId, setClientId] = useState('');
@@ -221,7 +225,7 @@ export default function PackingListForm({
 
   // Auto-save form draft to localStorage when states change
   useEffect(() => {
-    if (hasCheckedDraft && !editingPackingList && !isDuplicate) {
+    if (hasCheckedDraft && !editingPackingList && !isDuplicate && !isTestMode) {
       if (hasContent) {
         const draftObj = {
           packingType,
@@ -573,14 +577,12 @@ export default function PackingListForm({
   // Save new article on the fly
   const handleAddNewArticle = async (name: string, fields: Record<string, string>): Promise<string> => {
     try {
-      if (!formProviderId) {
-        throw new Error("Debe seleccionar un Proveedor primero antes de registrar un nuevo artículo.");
-      }
+      const defaultProviderId = formProviderId || providers[0]?.id || '';
       const newArticleData = {
         name,
         description: fields.description || '',
         unit: 'metros',
-        providerId: formProviderId,
+        providerId: defaultProviderId,
         createdAt: new Date().toISOString()
       };
       const docRef = await addDoc(collection(db, 'articles'), newArticleData);
@@ -595,8 +597,8 @@ export default function PackingListForm({
   // Initial group setup (start with 1 empty article group when not editing)
   useEffect(() => {
     if (articleGroups.length === 0 && !editingPackingList) {
-      const activeProvId = formProviderId || '';
-      const matchingArticles = articles.filter(a => a.providerId === activeProvId);
+      const activeProvId = formProviderId || providers[0]?.id || '';
+      const matchingArticles = articles.filter(a => !activeProvId || a.providerId === activeProvId);
       const defaultArticleId = matchingArticles.length === 1 ? matchingArticles[0].id : '';
       const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === activeProvId));
 
@@ -615,8 +617,8 @@ export default function PackingListForm({
   }, []);
 
   const handleAddArticleGroup = () => {
-    const activeProvId = formProviderId || '';
-    const matchingArticles = articles.filter(a => a.providerId === activeProvId);
+    const activeProvId = formProviderId || providers[0]?.id || '';
+    const matchingArticles = articles.filter(a => !activeProvId || a.providerId === activeProvId);
     const defaultArticleId = matchingArticles.length === 1 ? matchingArticles[0].id : '';
     const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === activeProvId));
 
@@ -812,7 +814,7 @@ export default function PackingListForm({
 
     for (let i = startLineIndex; i < lines.length; i++) {
       const line = lines[i].trim();
-      if (!line) continue;
+      if (!line || isObservationOrSummaryLine(line)) continue;
 
       const cols = splitIntoColumns(line);
       if (cols.length === 0) continue;
@@ -913,11 +915,11 @@ export default function PackingListForm({
 
         return {
           ...g,
-          lot: isExcelOrBulk ? '' : g.lot,
-          partida: isExcelOrBulk ? '' : g.partida,
-          tono: isExcelOrBulk
-            ? (isSanJacinto ? (tonoUpdated ? normalizeSanJacintoTono(tonoUpdated) : '-') : '')
-            : (isSanJacinto ? normalizeSanJacintoTono(g.tono || '-') : g.tono),
+          lot: lotUpdated || g.lot || '',
+          partida: partidaUpdated || g.partida || '',
+          tono: isSanJacinto
+            ? (tonoUpdated ? normalizeSanJacintoTono(tonoUpdated) : (g.tono ? normalizeSanJacintoTono(g.tono) : '-'))
+            : (tonoUpdated || g.tono || ''),
           hasProcessedExcel: isExcelOrBulk ? true : g.hasProcessedExcel,
           rolls: newRolls
         };
@@ -1058,23 +1060,18 @@ export default function PackingListForm({
       toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
       return;
     }
-    if (!formProviderId) {
-      const diag = {
-        title: 'Proveedor Requerido',
-        message: 'Por favor seleccione el Proveedor para este despacho.',
-        rootCause: 'No se ha indicado el proveedor o tela matriz.',
-        solution: 'Seleccione el proveedor correspondiente en el selector superior.'
-      };
-      setError(diag);
-      toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
-      return;
-    }
 
     // Article groups validations & missing fields collection
+    // Create decoupled deep copy to avoid mutating React state directly
+    const groupsForSave = articleGroups.map(g => ({
+      ...g,
+      rolls: g.rolls.map(r => ({ ...r }))
+    }));
+
     const missingFieldsSet = new Set<string>();
 
-    for (let gIdx = 0; gIdx < articleGroups.length; gIdx++) {
-      const g = articleGroups[gIdx];
+    for (let gIdx = 0; gIdx < groupsForSave.length; gIdx++) {
+      const g = groupsForSave[gIdx];
       if (!g.articleId) {
         const diag = {
           title: `Artículo #${gIdx + 1} sin selección`,
@@ -1209,7 +1206,7 @@ export default function PackingListForm({
 
     // Validate duplicate rollIds
     const seenRollIds: { [rollId: string]: string } = {};
-    for (const g of articleGroups) {
+    for (const g of groupsForSave) {
       for (const r of g.rolls) {
         if (r.rollId) {
           if (seenRollIds[r.rollId]) {
@@ -1229,8 +1226,8 @@ export default function PackingListForm({
     }
 
     // Deep check across entire inventory for exhausted / already used rolls
-    for (let gIdx = 0; gIdx < articleGroups.length; gIdx++) {
-      const g = articleGroups[gIdx];
+    for (let gIdx = 0; gIdx < groupsForSave.length; gIdx++) {
+      const g = groupsForSave[gIdx];
       for (let rIdx = 0; rIdx < g.rolls.length; rIdx++) {
         const r = g.rolls[rIdx];
         if (r.rollNumber && r.rollNumber.trim()) {
@@ -1286,7 +1283,7 @@ export default function PackingListForm({
     try {
       // Build flattened items array for database storage
       const finalItems: PackingListItem[] = [];
-      articleGroups.forEach(g => {
+      groupsForSave.forEach(g => {
         const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === g.providerId));
         g.rolls.forEach(r => {
           const itemTono = isSanJacinto
@@ -1322,6 +1319,43 @@ export default function PackingListForm({
       }
 
       const clientObj = clients.find(c => c.id === clientId);
+
+      // --- MODO PRUEBA (SIMULACIÓN SIN GUARDAR EN BD NI AFECTAR CORRELATIVOS NI STOCK) ---
+      if (isTestMode) {
+        const simulatedNo = `PL-PRUEBA-${Math.floor(100 + Math.random() * 900)}`;
+        const testPL: PackingList = {
+          id: `pl-sim-${Date.now()}`,
+          packingListNo: simulatedNo,
+          type: packingType,
+          clientId,
+          sellerId,
+          date: docDate,
+          items: finalItems,
+          totalMeters: totalMetersValue,
+          totalRollsOrCuts: totalRollsValue,
+          notes: notes.trim(),
+          guideNumber: guideNumber.trim(),
+          dispatchAddress: dispatchAddress.trim(),
+          importantNotice: "Revisar el rollo antes de cortar y conservar la etiqueta (DOCUMENTO DE PRUEBA / SIN GUARDAR EN BD)",
+          omittedFields: omittedList,
+          signedBy: {
+            name: currentOperator || 'OPERARIO DE PRUEBA',
+            dni: '00000000',
+            date: docDate,
+            signaturePresent: false
+          },
+          createdAt: new Date().toISOString(),
+          isTestSimulation: true
+        };
+
+        setLoading(false);
+        toast.info(`🧪 MODO PRUEBA: Packing List generado como "${simulatedNo}". NO se guardó en la base de datos ni se modificaron inventario ni correlativos.`, {
+          title: 'Simulación de Ensayo Exitosa'
+        });
+        setSuccess(`¡Simulación de prueba generada (${simulatedNo})! La base de datos real no fue alterada.`);
+        onPackingListCreated(testPL);
+        return;
+      }
 
       if (editingPackingList && !isDuplicate) {
         // --- 1. MODIFICAR/EDITAR PACKING LIST EXISTENTE (TRANSACCIÓN ATÓMICA) ---
@@ -1847,6 +1881,36 @@ export default function PackingListForm({
         />
       )}
 
+      {isTestMode && (
+        <div className="mb-4 p-4 bg-amber-500/15 border-2 border-amber-500 rounded-xl flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap shadow-md animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <span className="p-2.5 bg-amber-500 text-slate-900 rounded-lg text-xl font-bold shrink-0">🧪</span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-extrabold text-xs sm:text-sm text-amber-900 dark:text-amber-200 uppercase tracking-wider">
+                  MODO PRUEBA ACTIVO EN PACKING LIST
+                </h4>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-slate-900 font-extrabold animate-pulse">
+                  Sin Guardado
+                </span>
+              </div>
+              <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
+                Puedes registrar rollos, cortes, probar el escáner y calcular totales libremente. Al presionar <strong>"Probar Packing List"</strong>, se abrirá la vista previa de impresión sin consumir ningún correlativo ni descontar inventario en la base de datos real.
+              </p>
+            </div>
+          </div>
+          {onToggleTestMode && (
+            <button
+              type="button"
+              onClick={onToggleTestMode}
+              className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 font-bold text-xs rounded-lg transition cursor-pointer shrink-0 shadow-sm uppercase tracking-wider"
+            >
+              Quitar Modo Prueba
+            </button>
+          )}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
         {/* SECCIÓN 1: DATOS DEL DESPACHO */}
         <div className="p-3.5 sm:p-5 border border-app-border rounded-xl bg-app-bg/30 space-y-3 sm:space-y-4">
@@ -1859,7 +1923,7 @@ export default function PackingListForm({
             </h3>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             <div>
               <label className="block text-xs font-bold text-app-text/80 mb-1">Fecha de Despacho *</label>
               <div className="relative">
@@ -1889,6 +1953,7 @@ export default function PackingListForm({
               setFormProviderId={setFormProviderId}
               providers={providers}
               onAddNewProvider={handleAddNewProvider}
+              showProviderSelector={false}
             />
           </div>
 
@@ -2077,16 +2142,20 @@ export default function PackingListForm({
             <button
               type="submit"
               disabled={loading}
-              className={`px-5 py-3 sm:py-2.5 text-white font-bold rounded-lg text-xs sm:text-sm transition cursor-pointer shadow-xs disabled:opacity-50 flex items-center justify-center gap-1.5 min-h-[44px] ${
-                editingPackingList && !isDuplicate
-                  ? 'bg-app-primary hover:bg-app-primary/90'
-                  : 'bg-app-secondary hover:bg-app-secondary/90'
+              className={`px-5 py-3 sm:py-2.5 font-bold rounded-lg text-xs sm:text-sm transition cursor-pointer shadow-xs disabled:opacity-50 flex items-center justify-center gap-1.5 min-h-[44px] ${
+                isTestMode
+                  ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 ring-2 ring-amber-400 font-black'
+                  : editingPackingList && !isDuplicate
+                    ? 'bg-app-primary hover:bg-app-primary/90 text-white'
+                    : 'bg-app-secondary hover:bg-app-secondary/90 text-white'
               }`}
               id="btn-submit-packinglist"
             >
               {loading 
-                ? (editingPackingList && !isDuplicate ? 'Guardando...' : isDuplicate ? 'Duplicando...' : 'Generando...') 
-                : (editingPackingList && !isDuplicate ? 'Guardar Cambios' : isDuplicate ? 'Crear Duplicado' : 'Guardar e Imprimir')}
+                ? (isTestMode ? 'Simulando prueba...' : editingPackingList && !isDuplicate ? 'Guardando...' : isDuplicate ? 'Duplicando...' : 'Generando...') 
+                : isTestMode
+                  ? '🧪 Probar Packing List (Simular sin Guardar)'
+                  : (editingPackingList && !isDuplicate ? 'Guardar Cambios' : isDuplicate ? 'Crear Duplicado' : 'Guardar e Imprimir')}
               <ChevronRight size={16} />
             </button>
           </div>

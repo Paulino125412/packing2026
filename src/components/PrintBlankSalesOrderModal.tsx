@@ -123,13 +123,25 @@ export const BLANK_SALES_FICHA_PRINT_CSS = `
       break-inside: avoid !important;
       flex-shrink: 0 !important;
     }
-    .is-double-mode .blank-ficha-half {
+    .is-double-mode .blank-ficha-half:first-child {
       height: 148.5mm !important;
       max-height: 148.5mm !important;
       display: flex !important;
       flex-direction: column !important;
       justify-content: center !important;
       align-items: center !important;
+      padding-top: 3.5mm !important;
+      padding-bottom: 0 !important;
+    }
+    .is-double-mode .blank-ficha-half:last-child {
+      height: 148.5mm !important;
+      max-height: 148.5mm !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      align-items: center !important;
+      padding-top: 0 !important;
+      padding-bottom: 3.5mm !important;
     }
     .is-single-mode .blank-ficha-half {
       height: 148.5mm !important;
@@ -384,11 +396,10 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
         </tbody>
       </table>
 
-      {/* 4. Observaciones */}
-      <div className="mt-1 px-0.5 text-[10px] text-black">
-        <div className="flex items-baseline">
-          <span className="font-normal whitespace-nowrap">Observaciones:</span>
-          <span className="flex-1 border-b border-black ml-1" />
+      {/* 4. Observaciones (Espacio para 2 líneas con líneas invisibles) */}
+      <div className="mt-1 px-0.5 text-[10px] leading-[15px] text-black">
+        <div className="min-h-[30px]">
+          <span className="font-normal mr-1">Observaciones:</span>
         </div>
       </div>
 
@@ -546,26 +557,15 @@ export default function PrintBlankSalesOrderModal({ onClose }: PrintBlankSalesOr
           style={{ backgroundColor: '#ffffff' }}
         >
           {/* Half 1: Top Part */}
-          <div className="blank-ficha-half w-full flex-1 flex flex-col justify-center items-center p-2 print:p-0">
+          <div className={`blank-ficha-half w-full flex-1 flex flex-col ${printMode === 'double' ? 'justify-center pt-2 sm:pt-3' : 'justify-start'} items-center p-2 print:p-0`}>
             <BlankFichaCard />
           </div>
 
           {/* Optional Half 2: Bottom Part (Mode 'double') */}
           {printMode === 'double' && (
-            <>
-              {/* Guía de corte en el centro exacto de la hoja A4 */}
-              <div className="w-full flex items-center justify-center my-0.5 select-none print:my-0">
-                <div className="flex-1 border-b border-dashed border-gray-400 print:border-black" />
-                <span className="px-2.5 text-[8.5px] font-mono text-gray-500 print:text-black uppercase tracking-widest flex items-center gap-1">
-                  ✂ corte aquí
-                </span>
-                <div className="flex-1 border-b border-dashed border-gray-400 print:border-black" />
-              </div>
-
-              <div className="blank-ficha-half w-full flex-1 flex flex-col justify-center items-center p-2 print:p-0">
-                <BlankFichaCard />
-              </div>
-            </>
+            <div className="blank-ficha-half w-full flex-1 flex flex-col justify-center pb-2 sm:pb-3 items-center p-2 print:p-0">
+              <BlankFichaCard />
+            </div>
           )}
         </div>
       </div>

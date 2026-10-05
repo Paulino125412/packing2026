@@ -40,13 +40,17 @@ interface SalesOrderManagerProps {
   sellers: Seller[];
   articles: Article[];
   currentOperator: string;
+  isTestMode?: boolean;
+  onToggleTestMode?: () => void;
 }
 
 export default function SalesOrderManager({
   clients,
   sellers,
   articles,
-  currentOperator
+  currentOperator,
+  isTestMode = false,
+  onToggleTestMode
 }: SalesOrderManagerProps) {
   const toast = useToast();
   const [viewMode, setViewMode] = useState<'create' | 'history'>('create');
@@ -304,7 +308,7 @@ export default function SalesOrderManager({
 
   // Auto-save draft to localStorage whenever form values change
   useEffect(() => {
-    if (hasCheckedDraft && !editingId) {
+    if (hasCheckedDraft && !editingId && !isTestMode) {
       if (hasContent) {
         const now = new Date();
         const draftObj = {
@@ -633,6 +637,25 @@ export default function SalesOrderManager({
       appVersion: '2.6r'
     };
 
+    // --- MODO PRUEBA: SIMULACIÓN SIN GUARDAR EN BD NI AFECTAR CORRELATIVOS ---
+    if (isTestMode) {
+      const simulatedOrderNo = `OV-PRUEBA-${Math.floor(100 + Math.random() * 900)}`;
+      const testOrder: SalesOrder = {
+        id: `so-sim-${Date.now()}`,
+        ...payload,
+        orderNo: simulatedOrderNo,
+        isTestSimulation: true
+      };
+      setLoading(false);
+      toast.info(`🧪 MODO PRUEBA: Orden de Venta simulada como "${simulatedOrderNo}". NO se guardó en la base de datos ni se consumió correlativo.`, {
+        title: 'Simulación de Ensayo Exitosa'
+      });
+      if (shouldPrint) {
+        setPrintOrder(testOrder);
+      }
+      return;
+    }
+
     try {
       if (editingId) {
         await updateDoc(doc(db, 'sales_orders', editingId), payload);
@@ -842,7 +865,38 @@ export default function SalesOrderManager({
 
       {/* VIEW MODE 1: CREATE / EDIT FORM */}
       {viewMode === 'create' && (
-        <div className="bg-app-surface border border-app-border rounded-xl p-4 sm:p-6 shadow-sm space-y-6">
+        <div className="space-y-4">
+          {isTestMode && (
+            <div className="p-4 bg-amber-500/15 border-2 border-amber-500 rounded-xl flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap shadow-md animate-fadeIn">
+              <div className="flex items-center gap-3">
+                <span className="p-2.5 bg-amber-500 text-slate-900 rounded-lg text-xl font-bold shrink-0">🧪</span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-extrabold text-xs sm:text-sm text-amber-900 dark:text-amber-200 uppercase tracking-wider">
+                      MODO PRUEBA ACTIVO EN ÓRDENES DE VENTA
+                    </h4>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500 text-slate-900 font-extrabold animate-pulse">
+                      Sin Guardado
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
+                    Puedes consultar RUC/DNI, agregar artículos y calcular importes. Al hacer clic en <strong>"Probar e Imprimir"</strong> se generará la ficha en pantalla sin registrar nada en la base de datos real ni consumir correlativos.
+                  </p>
+                </div>
+              </div>
+              {onToggleTestMode && (
+                <button
+                  type="button"
+                  onClick={onToggleTestMode}
+                  className="px-3.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 font-bold text-xs rounded-lg transition cursor-pointer shrink-0 shadow-sm uppercase tracking-wider"
+                >
+                  Quitar Modo Prueba
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="bg-app-surface border border-app-border rounded-xl p-4 sm:p-6 shadow-sm space-y-6">
           <div className="flex flex-wrap items-center justify-between border-b border-app-border/60 pb-3 gap-3">
             <div className="flex items-center gap-2.5 flex-wrap">
               <h2 className="text-sm font-bold uppercase tracking-wider text-app-primary flex items-center gap-2">
@@ -1565,22 +1619,31 @@ export default function SalesOrderManager({
               type="button"
               onClick={() => handleSaveOrder(false)}
               disabled={loading}
-              className="px-5 py-2.5 bg-app-surface border border-app-primary text-app-primary hover:bg-app-primary/10 font-bold text-xs rounded-lg transition shadow-2xs flex items-center gap-2 cursor-pointer"
+              className={`px-5 py-2.5 font-bold text-xs rounded-lg transition shadow-2xs flex items-center gap-2 cursor-pointer ${
+                isTestMode 
+                  ? 'bg-amber-500/20 text-amber-800 dark:text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 font-bold'
+                  : 'bg-app-surface border border-app-primary text-app-primary hover:bg-app-primary/10'
+              }`}
             >
               <CheckCircle size={15} />
-              Guardar Orden
+              {isTestMode ? '🧪 Probar Orden (Simular)' : 'Guardar Orden'}
             </button>
 
             <button
               type="button"
               onClick={() => handleSaveOrder(true)}
               disabled={loading}
-              className="px-6 py-2.5 bg-app-primary hover:bg-app-primary/90 text-white font-bold text-xs rounded-lg transition shadow-md flex items-center gap-2 cursor-pointer uppercase tracking-wider"
+              className={`px-6 py-2.5 font-bold text-xs rounded-lg transition shadow-md flex items-center gap-2 cursor-pointer uppercase tracking-wider ${
+                isTestMode 
+                  ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 ring-2 ring-amber-400 font-black'
+                  : 'bg-app-primary hover:bg-app-primary/90 text-white'
+              }`}
             >
               <Printer size={15} />
-              Guardar e Imprimir
+              {isTestMode ? '🧪 Probar e Imprimir (Sin Guardar)' : 'Guardar e Imprimir'}
             </button>
           </div>
+        </div>
         </div>
       )}
 
