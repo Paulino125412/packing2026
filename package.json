@@ -1,13 +1,13 @@
 {
-  "name": "react-example",
+  "name": "packing2026",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs",
-    "clean": "rm -rf dist server.js",
+    "start": "cross-env NODE_ENV=production node dist/server.cjs",
+    "clean": "node -e \"['dist', 'server.js'].forEach(p => require('fs').rmSync(p, { recursive: true, force: true }))\"",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
@@ -41,6 +41,7 @@
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0"
+    "@types/node": "^22.14.0",
+    "cross-env": "^10.1.0"
   }
 }

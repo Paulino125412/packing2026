@@ -7,8 +7,36 @@ const PORT = 3000;
 
 // Sentry Tunnel Route: Bypasses browser AdBlockers and Brave Shields.
 // MUST be defined before global express.json() so express.raw receives the raw unparsed stream.
-app.post("/api/sentry-tunnel", express.raw({ type: "*/*", limit: "10mb" }), async (req, res) => {
+const sentryRateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const SENTRY_RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const SENTRY_RATE_LIMIT_MAX = 60; // 60 requests / minute
+
+app.post("/api/sentry-tunnel", express.raw({ type: "*/*", limit: "200kb" }), async (req, res) => {
   try {
+    // 1. Rate Limiting by IP (max 60 requests/min, response 429)
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+    let rateRecord = sentryRateLimitMap.get(clientIp);
+
+    if (!rateRecord || now > rateRecord.resetTime) {
+      rateRecord = { count: 1, resetTime: now + SENTRY_RATE_LIMIT_WINDOW };
+      sentryRateLimitMap.set(clientIp, rateRecord);
+    } else {
+      rateRecord.count++;
+      if (rateRecord.count > SENTRY_RATE_LIMIT_MAX) {
+        return res.status(429).json({ error: "Too many requests to Sentry tunnel. Rate limit exceeded (60 req/min)." });
+      }
+    }
+
+    // Periodic cleanup of expired rate limit entries to prevent memory leaks
+    if (sentryRateLimitMap.size > 500) {
+      for (const [key, value] of sentryRateLimitMap.entries()) {
+        if (now > value.resetTime) {
+          sentryRateLimitMap.delete(key);
+        }
+      }
+    }
+
     let rawEnvelope = "";
     let envelopeBuffer: Buffer;
 
@@ -39,14 +67,30 @@ app.post("/api/sentry-tunnel", express.raw({ type: "*/*", limit: "10mb" }), asyn
       }
     }
 
-    const fallbackDsn = process.env.VITE_SENTRY_DSN || "https://da0301551a812032c76704b5e10c7090@o4511997556097024.ingest.us.sentry.io/4512040508588032";
-    const dsnString = header?.dsn || fallbackDsn;
+    // 2. Validate server-configured DSN
+    const serverConfiguredDsn = process.env.VITE_SENTRY_DSN;
+    if (!serverConfiguredDsn) {
+      return res.status(204).end();
+    }
+
+    // 3. Validate that envelope's DSN matches server's configured DSN
+    if (header?.dsn) {
+      try {
+        const headerUrl = new URL(header.dsn);
+        const configuredUrl = new URL(serverConfiguredDsn);
+        if (headerUrl.toString() !== configuredUrl.toString()) {
+          return res.status(400).json({ error: "Envelope DSN does not match configured server DSN" });
+        }
+      } catch {
+        return res.status(400).json({ error: "Invalid envelope DSN" });
+      }
+    }
 
     let dsn: URL;
     try {
-      dsn = new URL(dsnString);
+      dsn = new URL(serverConfiguredDsn);
     } catch {
-      return res.status(400).json({ error: "Invalid Sentry DSN" });
+      return res.status(400).json({ error: "Invalid configured Sentry DSN" });
     }
 
     if (!dsn.hostname.endsWith(".sentry.io")) {
