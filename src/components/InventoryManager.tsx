@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { RollItem, Provider, Article } from '../types';
 import { db, addDoc, updateDoc, deleteDoc, fetchAllInventoryDocs, fetchAllSoldRolls } from '../firebase';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { collection, doc } from 'firebase/firestore';
 import InventoryExcelPasteParser from './inventory/InventoryExcelPasteParser';
-import { Search, Filter, Plus, FileSpreadsheet, Info, Wrench, Trash2, ShieldAlert, ArrowDownUp, X, CheckCircle, RefreshCw, Package, Tag, QrCode, ScanLine, Printer, CheckSquare, Square } from 'lucide-react';
+import { Search, Filter, Plus, FileSpreadsheet, Info, Wrench, Trash2, ShieldAlert, X, CheckCircle, RefreshCw, Package, Tag, ScanLine, CheckSquare, Square } from 'lucide-react';
 import { exportInventoryToExcel } from '../utils/excelExport';
 import AlertBanner from './AlertBanner';
 import { useToast } from '../context/ToastContext';

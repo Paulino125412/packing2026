@@ -2,29 +2,22 @@ import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { 
   db, 
   seedDatabaseIfEmpty, 
-  handleFirestoreError, 
-  OperationType,
   getLocalMode,
   setLocalMode,
   getLocalStorageCollection,
   seedLocalStorage,
   syncLocalDataToCloud
 } from './firebase';
-import { collection, onSnapshot, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { Client, Seller, Provider, Article, RollItem, PackingList } from './types';
 
 // Icons
 import { 
   FileText, 
   History, 
-  Layers, 
   Settings, 
   User, 
   Warehouse, 
-  Activity, 
-  HelpCircle,
-  Truck,
-  RotateCcw,
   CloudLightning,
   RefreshCw,
   Sun,
@@ -34,7 +27,6 @@ import {
   ClipboardList,
   PanelLeftClose,
   PanelLeftOpen,
-  PanelLeft,
   Menu,
   X
 } from 'lucide-react';
@@ -121,6 +113,7 @@ export default function App() {
   const [inventoryLimit, setInventoryLimit] = useState(200);
   const [inventoryHasMore, setInventoryHasMore] = useState(false);
   const [packingLists, setPackingLists] = useState<PackingList[]>([]);
+  const [listenerRefreshKey, setListenerRefreshKey] = useState(0);
 
   // Print Modal State
   const [selectedPrintList, setSelectedPrintList] = useState<PackingList | null>(null);
@@ -206,7 +199,7 @@ export default function App() {
     const collections = ['providers', 'articles', 'clients', 'sellers', 'inventory', 'packinglists'];
     const hasPending = collections.some(col => {
       const items = getLocalStorageCollection(col);
-      return items.some((item: any) => item.id && String(item.id).startsWith('local-'));
+      return items.some((item: any) => (item.id && String(item.id).startsWith('local-')) || item._dirty === true);
     });
     setHasPendingSync(hasPending);
   }, [isLocal, clients, sellers, providers, articles, inventory, packingLists]);
@@ -398,7 +391,7 @@ export default function App() {
         try { unsub(); } catch(e) {}
       });
     };
-  }, []);
+  }, [listenerRefreshKey]);
 
   // Separate independent effect for Inventory collection with limit
   useEffect(() => {
@@ -416,17 +409,19 @@ export default function App() {
       }
     );
     return () => unsubInventory();
-  }, [inventoryLimit, isLocal]);
+  }, [inventoryLimit, isLocal, listenerRefreshKey]);
 
   // Refresh helper (mostly handled by onSnapshot, but triggers full check)
   const handleForceRefresh = async () => {
     setLoading(true);
     if (getLocalMode() || isLocal) {
       loadLocalData();
+      setLoading(false);
     } else {
       try {
         await seedDatabaseIfEmpty();
         setConnectionErrorReason(null);
+        setListenerRefreshKey(prev => prev + 1);
       } catch (e: any) {
         console.error(e);
         const reasonStr = `Error al refrescar conexión: ${e?.message || e}`;

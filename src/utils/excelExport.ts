@@ -26,6 +26,24 @@ async function getLogoBase64(): Promise<string | null> {
 }
 
 /**
+ * Safely parses weight values handling Latin formats (e.g., "1.580,5", "25,5", "25.5 kg").
+ */
+export function parseNumericWeight(raw: string | number | undefined | null): number {
+  if (raw === undefined || raw === null) return 0;
+  let s = String(raw).trim();
+  if (!s) return 0;
+  // Detectar formato con punto de miles y coma decimal: "1.580,5"
+  if (/\d\.\d{3}/.test(s) && s.includes(',')) {
+    s = s.replace(/\./g, '').replace(/,/, '.');
+  } else {
+    s = s.replace(/,/g, '.');
+  }
+  s = s.replace(/[^\d.-]/g, '');
+  const v = parseFloat(s);
+  return !isNaN(v) && isFinite(v) && v > 0 ? v : 0;
+}
+
+/**
  * Adds the Juditex branded header to any worksheet
  */
 async function addBrandedHeader(
@@ -721,11 +739,7 @@ export async function exportSinglePackingListToExcel(
   }
 
   const totalMeters = pl.items.reduce((acc, item) => acc + item.meters, 0);
-  const totalWeight = pl.items.reduce((acc, item) => {
-    const rawW = (item.weight || '').toString().trim().replace(/,/g, '.').replace(/[^\d.-]/g, '');
-    const parsedW = parseFloat(rawW);
-    return acc + (!isNaN(parsedW) && isFinite(parsedW) && parsedW > 0 ? parsedW : 0);
-  }, 0);
+  const totalWeight = pl.items.reduce((acc, item) => acc + parseNumericWeight(item.weight), 0);
 
   // Table Headers definition
   const headers = ['N°', 'Artículo / Tela'];
@@ -916,11 +930,7 @@ export async function exportSinglePackingListToExcel(
     const group = articleGroupsMap.get(key)!;
     group.items.push(item);
     group.totalMeters += Number(item.meters || 0);
-    const rawW = (item.weight || '').toString().trim().replace(/,/g, '.').replace(/[^\d.-]/g, '');
-    const parsedW = parseFloat(rawW);
-    if (!isNaN(parsedW) && isFinite(parsedW) && parsedW > 0) {
-      group.totalWeight += parsedW;
-    }
+    group.totalWeight += parseNumericWeight(item.weight);
     group.rollsCount += 1;
   });
 

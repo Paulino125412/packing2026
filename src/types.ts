@@ -87,12 +87,6 @@ export interface PackingList {
   guideNumber?: string;
   dispatchAddress?: string;
   importantNotice: string; // Default: "Revisar el rollo antes de cortar y conservar la etiqueta"
-  signedBy: {
-    name: string;
-    dni: string;
-    date: string;
-    signaturePresent: boolean;
-  };
   createdAt: string;
   omittedFields?: string[];
   appVersion?: string;

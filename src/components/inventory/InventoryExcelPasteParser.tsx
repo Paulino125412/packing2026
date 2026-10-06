@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Provider, Article, RollItem } from '../../types';
 import { resolveColumnsForText, parseSanitizedNumeric } from '../packing-list-form/ExcelPasteParser';
-import { Clipboard, AlertTriangle, CheckCircle, Trash2, Plus, Info } from 'lucide-react';
+import { Clipboard, AlertTriangle, CheckCircle, Trash2, Info } from 'lucide-react';
 
 interface ParsedRoll {
   rollNumber: string;
@@ -98,7 +98,7 @@ export default function InventoryExcelPasteParser({
         let widthVal = '';
         if (res.widthColIdx !== -1 && cols[res.widthColIdx]) {
           const parsedW = parseSanitizedNumeric(cols[res.widthColIdx]);
-          widthVal = parsedW !== null ? String(parsedW) : cols[res.widthColIdx].replace(/m|mts|mt|cm/i, '').trim();
+          widthVal = parsedW !== null && parsedW > 0 ? String(parsedW) : '';
         }
 
         // Extract weight

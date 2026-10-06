@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { PackingList, Client, Seller, Provider, Article, RollItem } from '../types';
-import { db, deleteDoc, updateDoc, runTransaction } from '../firebase';
+import { db, runTransaction } from '../firebase';
 import { doc } from 'firebase/firestore';
-import { Search, Filter, Printer, Trash2, Calendar, User, Eye, Layers, FileText, AlertTriangle, CheckCircle, RefreshCw, X, Edit2, FileSpreadsheet, MessageCircle, Mail, Plus, MoreVertical } from 'lucide-react';
+import { Search, Filter, Trash2, Eye, FileText, AlertTriangle, RefreshCw, X, Edit2, FileSpreadsheet, MessageCircle, Plus, MoreVertical } from 'lucide-react';
 import { exportPackingListSummaryToExcel, exportPackingListFullDetailsToExcel, exportSinglePackingListToExcel } from '../utils/excelExport';
 import AlertBanner from './AlertBanner';
 

@@ -119,6 +119,29 @@ export function getPaginatedBlocks(
         if (lastIdx !== -1) {
           const r = prevBlock.splice(lastIdx, 1)[0];
           lastBlock.unshift(r);
+
+          const articleId = r.articleId;
+          // Ensure lastBlock has a header for this article so rolls are never orphaned without a title
+          if (!lastBlock.some(row => row.type === 'header' && row.articleId === articleId)) {
+            const existingHeader = prevBlock.find(row => row.type === 'header' && row.articleId === articleId)
+              || flatItems.find(row => row.type === 'header' && row.articleId === articleId);
+            if (existingHeader) {
+              const baseName = existingHeader.articleName || getArticleName(articleId);
+              const contName = baseName.includes('(Cont.)') ? baseName : `${baseName} (Cont.)`;
+              lastBlock.unshift({
+                ...existingHeader,
+                articleName: contName
+              });
+            }
+          }
+
+          // If prevBlock no longer has any rolls of this article, remove its header from prevBlock
+          if (prevBlock.filter(row => row.type === 'roll' && row.articleId === articleId).length === 0) {
+            const hIdx = prevBlock.findIndex(row => row.type === 'header' && row.articleId === articleId);
+            if (hIdx !== -1) {
+              prevBlock.splice(hIdx, 1);
+            }
+          }
         } else {
           break;
         }
@@ -258,13 +281,8 @@ export default function PrintPackingList({
     return packingList.notes || '';
   });
 
-  const [despachadorName, setDespachadorName] = React.useState(() => {
-    return packingList.signedBy?.name || 'Paul Almacén';
-  });
-
-  const [despachadorDni, setDespachadorDni] = React.useState(() => {
-    return packingList.signedBy?.dni || '42536471';
-  });
+  const [despachadorName, setDespachadorName] = React.useState('Paul Almacén');
+  const [despachadorDni, setDespachadorDni] = React.useState('42536471');
 
   // Calculate dynamic emission date/time
   const fechaHoraEmision = React.useMemo(() => {
@@ -596,11 +614,26 @@ Total Metros: ${formatPrintNumber(totalMeters)} m`;
               lastPage.unshift(rollToMove);
 
               const articleId = rollToMove.articleId;
+
+              // Ensure lastPage has the header for this article so rolls are never orphaned without a title
+              if (!lastPage.some(r => r.type === 'header' && r.articleId === articleId)) {
+                const existingHeader = prevPage.find(r => r.type === 'header' && r.articleId === articleId)
+                  || flatRows.find(r => r.type === 'header' && r.articleId === articleId);
+                if (existingHeader) {
+                  const baseName = existingHeader.articleName || getArticleName(articleId);
+                  const contName = baseName.includes('(Cont.)') ? baseName : `${baseName} (Cont.)`;
+                  lastPage.unshift({
+                    ...existingHeader,
+                    articleName: contName
+                  });
+                }
+              }
+
+              // If prevPage no longer has any rolls of this article, remove its header from prevPage
               if (prevPage.filter(r => r.type === 'roll' && r.articleId === articleId).length === 0) {
                 const hIdx = prevPage.findIndex(r => r.type === 'header' && r.articleId === articleId);
                 if (hIdx !== -1) {
-                  const hRow = prevPage.splice(hIdx, 1)[0];
-                  lastPage.unshift(hRow);
+                  prevPage.splice(hIdx, 1);
                 }
               }
             } else {

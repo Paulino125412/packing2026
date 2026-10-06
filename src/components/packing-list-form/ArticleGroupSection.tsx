@@ -451,10 +451,16 @@ export default function ArticleGroupSection({
                         placeholder={packingType === 'corte' ? "0.10" : "10.00"}
                         value={roll.meters !== undefined && roll.meters !== null ? roll.meters : ''}
                         onChange={e => onRollFieldChange(group.id, roll.id, 'meters', e.target.value)}
-                        onKeyDown={e => onRollKeyDown(e, group.id, rIndex)}
+                        onKeyDown={e => {
+                          if (e.key === 'e' || e.key === 'E' || e.key === '+') {
+                            e.preventDefault();
+                            return;
+                          }
+                          onRollKeyDown(e, group.id, rIndex);
+                        }}
                         onFocus={e => e.target.select()}
                         className={`w-full pl-2.5 pr-8 py-2 md:py-1 border rounded-md text-xs font-mono font-bold bg-app-input-bg min-h-[42px] md:min-h-0 text-left transition ${
-                          packingType !== 'corte' && roll.meters !== '' && Number(roll.meters) > 0 && Number(roll.meters) < 10.00
+                          packingType !== 'corte' && roll.meters !== '' && Number(roll.meters) >= 0 && Number(roll.meters) < 10.00
                             ? 'border-amber-500 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/30'
                             : 'border-app-input-border text-app-text font-bold'
                         }`}
@@ -469,7 +475,7 @@ export default function ArticleGroupSection({
                       </p>
                     ) : (
                       <>
-                        {roll.meters !== '' && Number(roll.meters) > 0 && Number(roll.meters) < 10.00 ? (
+                        {roll.meters !== '' && Number(roll.meters) >= 0 && Number(roll.meters) < 10.00 ? (
                           <div className="mt-1 p-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-800 dark:text-amber-200 flex flex-col gap-1">
                             <span className="leading-tight font-medium">
                               ⚠️ En rollos nuevos/antiguos el mínimo es <strong>10.00m</strong>.

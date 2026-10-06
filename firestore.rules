@@ -137,7 +137,6 @@ service cloud.firestore {
         && (!('dispatchAddress' in incoming(request)) || (incoming(request).dispatchAddress is string && incoming(request).dispatchAddress.size() <= 500))
         && (!('importantNotice' in incoming(request)) || (incoming(request).importantNotice is string && incoming(request).importantNotice.size() <= 500))
         && (!('omittedFields' in incoming(request)) || (incoming(request).omittedFields is list && incoming(request).omittedFields.size() <= 20))
-        && (!('signedBy' in incoming(request)) || incoming(request).signedBy is map)
         && (!('appVersion' in incoming(request)) || (incoming(request).appVersion is string && incoming(request).appVersion.size() <= 50))
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));

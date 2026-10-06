@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, User, Search, Check, X, Sparkles, ChevronDown } from 'lucide-react';
+import { Plus, User, Search, Check, X, Sparkles } from 'lucide-react';
 import { Seller } from '../types';
 
 interface ClientPreferredSellerSelectorProps {

@@ -8,10 +8,7 @@ import {
   XCircle, 
   RefreshCw, 
   X, 
-  ChevronRight,
-  Terminal,
-  Activity,
-  Check,
+  Terminal, 
   Radio
 } from 'lucide-react';
 import { runInternalRulesVerification, RuleCheckResult, SystemDataPayload } from '../utils/rulesChecker';

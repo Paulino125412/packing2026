@@ -9,13 +9,12 @@ import {
   ChevronUp, 
   Copy, 
   Check, 
-  Sparkles, 
   HelpCircle,
   Wrench,
   RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { analyzeSystemError, DiagnosticResult } from '../lib/diagnostics';
+import { analyzeSystemError } from '../lib/diagnostics';
 
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 

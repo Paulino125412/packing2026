@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion } from 'motion/react';
 import { 
   X, Printer, Tag, QrCode, Barcode, CheckSquare, Square, 
-  Settings2, Copy, Eye, ZoomIn, ZoomOut, RotateCcw, AlertCircle, 
-  Layers, Check
+  Settings2, Copy, AlertCircle
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';

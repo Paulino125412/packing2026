@@ -11,8 +11,7 @@ import {
   deleteDoc as firestoreDeleteDoc,
   doc, 
   setDoc,
-  runTransaction as firestoreRunTransaction,
-  serverTimestamp 
+  runTransaction as firestoreRunTransaction
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { RollItem, PackingList } from './types';
@@ -105,7 +104,13 @@ export async function updateDoc(reference: any, data: any) {
     
     const index = localData.findIndex((item: any) => item.id === id);
     if (index !== -1) {
-      localData[index] = { ...localData[index], ...data, updatedAt: new Date().toISOString() };
+      localData[index] = { 
+        ...localData[index], 
+        ...data, 
+        updatedAt: new Date().toISOString(),
+        _dirty: true,
+        _modifiedAt: new Date().toISOString()
+      };
       setLocalStorageCollection(collectionName, localData);
     }
     return;
@@ -162,9 +167,18 @@ export async function runTransaction(dbRef: any, updateFunction: (transaction: a
         const localData = getLocalStorageCollection(collectionName);
         const index = localData.findIndex((i: any) => i.id === id);
         if (index !== -1) {
-          localData[index] = { ...data };
+          localData[index] = { 
+            ...data,
+            _dirty: true,
+            _modifiedAt: new Date().toISOString()
+          };
         } else {
-          localData.push({ ...data, id });
+          localData.push({ 
+            ...data, 
+            id,
+            _dirty: !String(id).startsWith('local-'),
+            _modifiedAt: new Date().toISOString()
+          });
         }
         setLocalStorageCollection(collectionName, localData);
       },
@@ -176,7 +190,13 @@ export async function runTransaction(dbRef: any, updateFunction: (transaction: a
         const localData = getLocalStorageCollection(collectionName);
         const index = localData.findIndex((i: any) => i.id === id);
         if (index !== -1) {
-          localData[index] = { ...localData[index], ...data, updatedAt: new Date().toISOString() };
+          localData[index] = { 
+            ...localData[index], 
+            ...data, 
+            updatedAt: new Date().toISOString(),
+            _dirty: true,
+            _modifiedAt: new Date().toISOString()
+          };
           setLocalStorageCollection(collectionName, localData);
         }
       },
@@ -516,18 +536,33 @@ export async function syncLocalDataToCloud() {
   try {
     for (const collectionName of collectionsToSync) {
       const localData = getLocalStorageCollection(collectionName);
-      const itemsToSync = localData.filter((item: any) => item.id && String(item.id).startsWith('local-'));
+      const itemsToSync = localData.filter((item: any) => 
+        (item.id && String(item.id).startsWith('local-')) || item._dirty === true
+      );
 
       for (const item of itemsToSync) {
-        await setDoc(doc(db, collectionName, item.id), item);
+        const cleanItem = { ...item };
+        delete cleanItem._dirty;
+        delete cleanItem._modifiedAt;
+        await setDoc(doc(db, collectionName, item.id), cleanItem);
         uploadedCounts[collectionName]++;
       }
     }
 
-    // If everything succeeded without errors, remove only synced items from localStorage
+    // If everything succeeded without errors, remove local-* items and clean _dirty flags from remaining items
     for (const collectionName of collectionsToSync) {
       const localData = getLocalStorageCollection(collectionName);
-      const remainingItems = localData.filter((item: any) => !(item.id && String(item.id).startsWith('local-')));
+      const remainingItems = localData
+        .filter((item: any) => !(item.id && String(item.id).startsWith('local-')))
+        .map((item: any) => {
+          if (item._dirty) {
+            const clean = { ...item };
+            delete clean._dirty;
+            delete clean._modifiedAt;
+            return clean;
+          }
+          return item;
+        });
       setLocalStorageCollection(collectionName, remainingItems);
     }
 

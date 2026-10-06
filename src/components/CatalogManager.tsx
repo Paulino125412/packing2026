@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Client, Seller, Provider, Article, PackingList, RollItem } from '../types';
 import { db, addDoc, updateDoc, deleteDoc, fetchAllInventoryDocs } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
-import { Plus, Edit2, Trash2, Users, User, Briefcase, Truck, Layers, Check, X, Search, FileSpreadsheet, Building, Loader2 } from 'lucide-react';
+import { Plus, Edit2, Trash2, Users, Briefcase, Truck, Layers, X, Search, FileSpreadsheet, Building, Loader2 } from 'lucide-react';
 import { exportCatalogToExcel } from '../utils/excelExport';
 import AlertBanner from './AlertBanner';
 import { lookupRucOrDni } from '../lib/sunat';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, ChevronDown, Check, Plus, Loader2, X } from 'lucide-react';
+import { ChevronDown, Check, Plus, Loader2, X } from 'lucide-react';
 
 interface FieldConfig {
   key: string;

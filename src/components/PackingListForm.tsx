@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Client, Seller, Provider, Article, RollItem, PackingList, PackingListItem } from '../types';
-import { db, addDoc, updateDoc, runTransaction, fetchAllInventoryDocs, findRollInInventory, fetchAllPackingLists } from '../firebase';
+import { db, addDoc, runTransaction, fetchAllInventoryDocs, findRollInInventory, fetchAllPackingLists } from '../firebase';
 import { collection, doc } from 'firebase/firestore';
-import { Plus, Trash2, Calendar, User, ShoppingBag, CheckCircle2, ChevronRight, Hash, Ruler, X, FileText, Layers, Truck, AlertTriangle, Clock, Scissors, Archive } from 'lucide-react';
+import { Plus, Trash2, Calendar, ShoppingBag, CheckCircle2, ChevronRight, X, FileText, Layers, AlertTriangle, Clock, Scissors, Archive } from 'lucide-react';
 import SearchableCombobox from './SearchableCombobox';
 import { FormRollEntry, FormArticleGroup } from './packing-list-form/types';
 import { resolveColumnsForText, parseSanitizedNumeric, isObservationOrSummaryLine } from './packing-list-form/ExcelPasteParser';
@@ -32,6 +32,37 @@ interface PackingListFormProps {
   onToggleTestMode?: () => void;
 }
 
+const getLocalDateStr = (): string => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const generateUniqueId = (prefix: string): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}${crypto.randomUUID()}`;
+  }
+  return `${prefix}${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+};
+
+const sanitizeFirestoreData = <T,>(data: T): T => {
+  if (Array.isArray(data)) {
+    return data.map(item => sanitizeFirestoreData(item)) as unknown as T;
+  }
+  if (data !== null && typeof data === 'object') {
+    const cleaned: Record<string, any> = {};
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        cleaned[key] = sanitizeFirestoreData(val);
+      }
+    }
+    return cleaned as T;
+  }
+  return data;
+};
+
 export default function PackingListForm({
   clients,
   sellers,
@@ -49,17 +80,11 @@ export default function PackingListForm({
   isTestMode = false,
   onToggleTestMode
 }: PackingListFormProps) {
-  const [packingType, setPackingType] = useState<'nuevo' | 'antiguo' | 'corte'>('nuevo');
+  const [packingType, setPackingType] = useState<PackingList['type']>('nuevo');
   const [clientId, setClientId] = useState('');
   const [sellerId, setSellerId] = useState('');
 
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }, []);
+  const todayStr = useMemo(() => getLocalDateStr(), []);
 
   const minDocDate = useMemo(() => {
     if (editingPackingList && !isDuplicate && editingPackingList.date) {
@@ -68,13 +93,7 @@ export default function PackingListForm({
     return todayStr;
   }, [editingPackingList, isDuplicate, todayStr]);
 
-  const [docDate, setDocDate] = useState(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  });
+  const [docDate, setDocDate] = useState(() => getLocalDateStr());
   const [notes, setNotes] = useState('');
   const [formProviderId, setFormProviderId] = useState('');
   const [guideNumber, setGuideNumber] = useState('');
@@ -85,6 +104,7 @@ export default function PackingListForm({
   
   const toast = useToast();
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [error, setError] = useState<{
     message: string;
     title?: string;
@@ -156,11 +176,11 @@ export default function PackingListForm({
     setFormProviderId('');
     setGuideNumber('');
     setDispatchAddress('');
-    setDocDate(new Date().toISOString().split('T')[0]);
+    setDocDate(getLocalDateStr());
     setPackingType('nuevo');
     setArticleGroups([
       {
-        id: `group-${Date.now()}-${Math.random()}`,
+        id: generateUniqueId('group-'),
         providerId: '',
         articleId: '',
         lot: '',
@@ -308,7 +328,7 @@ export default function PackingListForm({
       const clientObj = clients.find(c => c.id === editingPackingList.clientId || c.name === editingPackingList.clientId);
       const sellerObj = sellers.find(s => s.id === editingPackingList.sellerId || s.name === editingPackingList.sellerId);
 
-      setPackingType(editingPackingList.type as any);
+      setPackingType(editingPackingList.type);
       setClientId(clientObj ? clientObj.id : (editingPackingList.clientId || ''));
       setSellerId(sellerObj ? sellerObj.id : (editingPackingList.sellerId || ''));
       setGuideNumber(editingPackingList.guideNumber || '');
@@ -316,9 +336,9 @@ export default function PackingListForm({
       
       // If duplicating, set current date. Otherwise, keep the original date.
       if (isDuplicate) {
-        setDocDate(new Date().toISOString().split('T')[0]);
+        setDocDate(getLocalDateStr());
       } else {
-        setDocDate(editingPackingList.date || new Date().toISOString().split('T')[0]);
+        setDocDate(editingPackingList.date || getLocalDateStr());
       }
       
       setNotes(editingPackingList.notes || '');
@@ -403,7 +423,7 @@ export default function PackingListForm({
       if (reconstructedGroups.length === 0) {
         reconstructedGroups = [
           {
-            id: `group-${Date.now()}-${Math.random()}`,
+            id: generateUniqueId('group-'),
             providerId: initialProviderId,
             articleId: '',
             lot: '',
@@ -422,14 +442,14 @@ export default function PackingListForm({
       setPackingType('nuevo');
       setClientId('');
       setSellerId('');
-      setDocDate(new Date().toISOString().split('T')[0]);
+      setDocDate(getLocalDateStr());
       setNotes('');
       setFormProviderId('');
       setGuideNumber('');
       setDispatchAddress('');
       setArticleGroups([
         {
-          id: `group-${Date.now()}-${Math.random()}`,
+          id: generateUniqueId('group-'),
           providerId: '',
           articleId: '',
           lot: '',
@@ -506,9 +526,12 @@ export default function PackingListForm({
 
   // Save new client on the fly
   const handleAddNewClient = async (name: string, fields: Record<string, string>): Promise<string> => {
+    if (!name || !name.trim()) {
+      throw new Error("El nombre o razón social del cliente es obligatorio.");
+    }
     try {
       const newClientData = {
-        name,
+        name: name.trim(),
         dni: fields.dni || '',
         email: fields.email || '',
         phone: fields.phone || '',
@@ -523,17 +546,20 @@ export default function PackingListForm({
         setDispatchAddress(newClientData.address);
       }
       return docRef.id;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error creating client on the fly:", err);
-      throw new Error("No se pudo registrar el cliente. Verifique su conexión.");
+      throw new Error(err.message || "No se pudo registrar el cliente. Verifique su conexión.");
     }
   };
 
   // Save new seller on the fly
   const handleAddNewSeller = async (name: string, fields: Record<string, string>): Promise<string> => {
+    if (!name || !name.trim()) {
+      throw new Error("El nombre del vendedor es obligatorio.");
+    }
     try {
       const newSellerData = {
-        name,
+        name: name.trim(),
         email: fields.email || '',
         phone: fields.phone || '',
         createdAt: new Date().toISOString()
@@ -541,21 +567,24 @@ export default function PackingListForm({
       const docRef = await addDoc(collection(db, 'sellers'), newSellerData);
       await onRefresh(); // Refresh data to update parent's sellers list
       return docRef.id;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error creating seller on the fly:", err);
-      throw new Error("No se pudo registrar el vendedor. Verifique su conexión.");
+      throw new Error(err.message || "No se pudo registrar el vendedor. Verifique su conexión.");
     }
   };
 
   // Save new provider on the fly
   const handleAddNewProvider = async (name: string, fields: Record<string, string>): Promise<string> => {
+    if (!name || !name.trim()) {
+      throw new Error("El nombre del proveedor es obligatorio.");
+    }
     try {
       const hasLot = fields.hasLot ? (fields.hasLot || '').trim().toLowerCase() !== 'no' : true;
       const hasPartida = fields.hasPartida ? (fields.hasPartida || '').trim().toLowerCase() !== 'no' : true;
       const hasTono = fields.hasTono ? (fields.hasTono || '').trim().toLowerCase() !== 'no' : true;
       
       const newProviderData = {
-        name,
+        name: name.trim(),
         hasLot,
         hasPartida,
         hasTono,
@@ -568,18 +597,21 @@ export default function PackingListForm({
       await onRefresh(); // Refresh data to update parent's providers list
       setFormProviderId(docRef.id);
       return docRef.id;
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error creating provider on the fly:", err);
-      throw new Error("No se pudo registrar el proveedor. Verifique su conexión.");
+      throw new Error(err.message || "No se pudo registrar el proveedor. Verifique su conexión.");
     }
   };
 
   // Save new article on the fly
   const handleAddNewArticle = async (name: string, fields: Record<string, string>): Promise<string> => {
+    if (!name || !name.trim()) {
+      throw new Error("El nombre del artículo/tela es obligatorio.");
+    }
     try {
       const defaultProviderId = formProviderId || providers[0]?.id || '';
       const newArticleData = {
-        name,
+        name: name.trim(),
         description: fields.description || '',
         unit: 'metros',
         providerId: defaultProviderId,
@@ -603,7 +635,7 @@ export default function PackingListForm({
       const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === activeProvId));
 
       const newGroup: FormArticleGroup = {
-        id: `group-${Date.now()}-${Math.random()}`,
+        id: generateUniqueId('group-'),
         providerId: activeProvId,
         articleId: defaultArticleId,
         lot: '',
@@ -623,7 +655,7 @@ export default function PackingListForm({
     const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === activeProvId));
 
     const newGroup: FormArticleGroup = {
-      id: `group-${Date.now()}-${Math.random()}`,
+      id: generateUniqueId('group-'),
       providerId: activeProvId,
       articleId: defaultArticleId,
       lot: '',
@@ -697,7 +729,7 @@ export default function PackingListForm({
           rolls: [
             ...g.rolls,
             {
-              id: `roll-${Date.now()}-${Math.random()}`,
+              id: generateUniqueId('roll-'),
               rollNumber: nextRollNumber,
               meters: packingType === 'corte' ? '' : (packingType === 'nuevo' ? 50 : 0),
               lot: g.lot || '',
@@ -744,7 +776,7 @@ export default function PackingListForm({
           rolls: [
             ...g.rolls,
             {
-              id: `roll-${Date.now()}-${Math.random()}`,
+              id: generateUniqueId('roll-'),
               rollNumber: scan.rollNumber,
               rollId: scan.rollId,
               meters: scan.meters !== undefined ? scan.meters : (packingType === 'corte' ? '' : (packingType === 'nuevo' ? 50 : 0)),
@@ -838,7 +870,7 @@ export default function PackingListForm({
         }
         if (widthColIdx !== -1 && cols[widthColIdx]) {
           const parsedW = parseSanitizedNumeric(cols[widthColIdx]);
-          rowWidth = parsedW !== null ? String(parsedW) : cols[widthColIdx].replace(/m|mts|mt|cm/i, '').trim();
+          rowWidth = parsedW !== null && parsedW > 0 ? String(parsedW) : '';
         }
         if (weightColIdx !== -1 && cols[weightColIdx]) {
           const parsedKg = parseSanitizedNumeric(cols[weightColIdx]);
@@ -901,7 +933,7 @@ export default function PackingListForm({
             : (row.tono || g.tono || '');
 
           newRolls.push({
-            id: `roll-${Date.now()}-${Math.random()}-${rollsCount}`,
+            id: generateUniqueId('roll-'),
             rollNumber: finalRollNum,
             meters: row.meters,
             lot: row.lot || g.lot || '',
@@ -1034,6 +1066,7 @@ export default function PackingListForm({
   // Submit and Save
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (loading || isSubmittingRef.current) return;
     setError(null);
     setSuccess(null);
 
@@ -1187,7 +1220,7 @@ export default function PackingListForm({
           toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
           return;
         }
-        if (r.maxMeters && numMeters > r.maxMeters) {
+        if (r.maxMeters !== undefined && numMeters > r.maxMeters + 0.001) {
           const diag = {
             title: 'Metraje Supera Stock Disponible',
             message: `Artículo #${gIdx + 1}, Cantidad #${rIdx + 1}: Los metros ingresados (${numMeters}m) superan el stock de almacén disponible para este rollo (${r.maxMeters}m).`,
@@ -1203,8 +1236,37 @@ export default function PackingListForm({
 
     // Execute atomic save logic with omitted fields recorded
     const executeSave = async (omittedList: string[]) => {
+      if (loading || isSubmittingRef.current) return;
+      isSubmittingRef.current = true;
+      setLoading(true);
 
-    // Validate duplicate rollIds
+      try {
+        // Pre-generate unique ROLLO-DIRECT numbers for any rolls missing rollNumber
+        const usedRollNumbersInDoc = new Set<string>();
+        for (const g of groupsForSave) {
+          for (const r of g.rolls) {
+            if (r.rollNumber && r.rollNumber.trim()) {
+              usedRollNumbersInDoc.add(r.rollNumber.trim().toLowerCase());
+            }
+          }
+        }
+
+        let directCounter = 1;
+        for (const g of groupsForSave) {
+          for (const r of g.rolls) {
+            if (!r.rollNumber || !r.rollNumber.trim()) {
+              let candidateNo = '';
+              do {
+                candidateNo = `ROLLO-DIRECT-${String(directCounter).padStart(4, '0')}`;
+                directCounter++;
+              } while (usedRollNumbersInDoc.has(candidateNo.toLowerCase()));
+              usedRollNumbersInDoc.add(candidateNo.toLowerCase());
+              r.rollNumber = candidateNo;
+            }
+          }
+        }
+
+        // Validate duplicate rollIds
     const seenRollIds: { [rollId: string]: string } = {};
     for (const g of groupsForSave) {
       for (const r of g.rolls) {
@@ -1221,6 +1283,29 @@ export default function PackingListForm({
             return;
           }
           seenRollIds[r.rollId] = r.rollNumber;
+        }
+      }
+    }
+
+    // Validate duplicate roll numbers per article (for direct entry or excel paste)
+    const seenRollNumbers: { [key: string]: boolean } = {};
+    for (const g of groupsForSave) {
+      for (const r of g.rolls) {
+        if (r.rollNumber && r.rollNumber.trim()) {
+          const normalizedNum = r.rollNumber.trim().toLowerCase();
+          const key = `${g.articleId}__${normalizedNum}`;
+          if (seenRollNumbers[key]) {
+            const diag = {
+              title: 'Rollo Repetido en el Despacho',
+              message: `El rollo '${r.rollNumber}' está duplicado para el mismo artículo en este despacho.`,
+              rootCause: 'Se ingresó el mismo número de rollo en más de una fila del mismo artículo.',
+              solution: 'Elimine la fila duplicada o modifique el número de rollo antes de continuar.'
+            };
+            setError(diag);
+            toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
+            return;
+          }
+          seenRollNumbers[key] = true;
         }
       }
     }
@@ -1278,11 +1363,8 @@ export default function PackingListForm({
       }
     }
 
-    setLoading(true);
-
-    try {
-      // Build flattened items array for database storage
-      const finalItems: PackingListItem[] = [];
+    // Build flattened items array for database storage
+    const finalItems: PackingListItem[] = [];
       groupsForSave.forEach(g => {
         const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === g.providerId));
         g.rolls.forEach(r => {
@@ -1291,8 +1373,8 @@ export default function PackingListForm({
             : (r.tono || g.tono || '');
 
           const item: PackingListItem = {
-            id: `pli-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
-            rollNumber: r.rollNumber || `ROLLO-DIRECT-${Math.floor(1000 + Math.random() * 9000)}`,
+            id: generateUniqueId('pli-'),
+            rollNumber: r.rollNumber,
             articleId: g.articleId || '',
             providerId: g.providerId || '',
             meters: Number(r.meters) || 0,
@@ -1324,7 +1406,7 @@ export default function PackingListForm({
       if (isTestMode) {
         const simulatedNo = `PL-PRUEBA-${Math.floor(100 + Math.random() * 900)}`;
         const testPL: PackingList = {
-          id: `pl-sim-${Date.now()}`,
+          id: generateUniqueId('pl-sim-'),
           packingListNo: simulatedNo,
           type: packingType,
           clientId,
@@ -1338,12 +1420,6 @@ export default function PackingListForm({
           dispatchAddress: dispatchAddress.trim(),
           importantNotice: "Revisar el rollo antes de cortar y conservar la etiqueta (DOCUMENTO DE PRUEBA / SIN GUARDAR EN BD)",
           omittedFields: omittedList,
-          signedBy: {
-            name: currentOperator || 'OPERARIO DE PRUEBA',
-            dni: '00000000',
-            date: docDate,
-            signaturePresent: false
-          },
           createdAt: new Date().toISOString(),
           isTestSimulation: true
         };
@@ -1372,11 +1448,7 @@ export default function PackingListForm({
           notes: notes.trim(),
           guideNumber: guideNumber.trim(),
           dispatchAddress: dispatchAddress.trim(),
-          omittedFields: omittedList,
-          signedBy: {
-            ...editingPackingList.signedBy,
-            date: docDate
-          }
+          omittedFields: omittedList
         };
 
         await runTransaction(db, async (transaction) => {
@@ -1391,22 +1463,20 @@ export default function PackingListForm({
           for (const rollId of allRollIds) {
             const rollRef = doc(db, 'inventory', rollId);
             const snap = await transaction.get(rollRef);
-            if (snap.exists()) {
-              rollSnaps[rollId] = snap.data();
-            } else {
-              const localRoll = inventory.find(r => r.id === rollId);
-              if (localRoll) rollSnaps[rollId] = localRoll;
+            if (!snap.exists()) {
+              throw new Error(`El rollo con ID "${rollId}" no existe en el inventario.`);
             }
+            rollSnaps[rollId] = snap.data();
           }
 
           // C. WRITE PHASE: Update packing list doc
           const plRef = doc(db, 'packinglists', editingPackingList.id);
-          transaction.update(plRef, updatedPL);
+          const sanitizedPL = sanitizeFirestoreData(updatedPL);
+          transaction.update(plRef, sanitizedPL as any);
 
           // D. Calculate new currentMeters for each affected roll
           for (const rollId of allRollIds) {
             const baseData = rollSnaps[rollId];
-            if (!baseData) continue;
 
             // Revert old items for this roll
             const oldMeters = editingPackingList.items
@@ -1420,8 +1490,17 @@ export default function PackingListForm({
 
             const initialMeters = Number(baseData.initialMeters || baseData.currentMeters || 0);
             const currentMeters = Number(baseData.currentMeters || 0);
-            const nextMeters = Math.max(0, currentMeters + oldMeters - newMeters);
-            const status = nextMeters === 0 ? 'sold' : (nextMeters >= initialMeters ? 'available' : 'partially_sold');
+            const EPSILON = 0.001;
+            const availableMeters = currentMeters + (typeof oldMeters !== 'undefined' ? oldMeters : 0);
+            const rawNextMeters = availableMeters - newMeters;
+
+            if (rawNextMeters < -EPSILON) {
+              const rollLabel = baseData.rollNumber || rollId;
+              throw new Error(`Stock insuficiente para el rollo ${rollLabel}: disponible ${availableMeters} m, solicitado ${newMeters} m`);
+            }
+
+            const nextMeters = Math.round(rawNextMeters * 1000) / 1000;
+            const status = nextMeters < EPSILON ? 'sold' : (nextMeters >= initialMeters - EPSILON ? 'available' : 'partially_sold');
 
             const rollRef = doc(db, 'inventory', rollId);
             transaction.update(rollRef, {
@@ -1444,9 +1523,20 @@ export default function PackingListForm({
         // --- 2. REGISTRAR NUEVO PACKING LIST O DUPLICADO (TRANSACCIÓN ATÓMICA CON CONTADOR) ---
         let createdPL: PackingList | null = null;
 
-        // Calcular el número más alto existente para asegurar continuidad si el contador aún no se ha inicializado
+        // Calcular el número más alto existente consultando todos los packing lists
+        // para garantizar continuidad incluso si la lista local en props estuviera paginada
+        let sourcePLs = packingLists;
+        try {
+          const allPLs = await fetchAllPackingLists();
+          if (allPLs && allPLs.length > 0) {
+            sourcePLs = allPLs;
+          }
+        } catch (fetchErr) {
+          console.warn("No se pudo obtener la lista completa de packing lists para correlativo, usando lista local:", fetchErr);
+        }
+
         let maxExistingNum = 0;
-        packingLists.forEach(pl => {
+        sourcePLs.forEach(pl => {
           const match = (pl.packingListNo || '').match(/^PL-(\d+)$/i);
           if (match) {
             const num = parseInt(match[1], 10);
@@ -1474,6 +1564,8 @@ export default function PackingListForm({
             const baseVal = Math.max(currentVal, maxExistingNum);
             nextValue = baseVal + 1;
           } else {
+            // Si el documento counters/packingListNo no existe en Firestore (ej. primer uso o documento borrado),
+            // se inicializa automáticamente tomando como base el correlativo más alto existente en la base de datos + 1
             nextValue = maxExistingNum + 1;
           }
 
@@ -1485,12 +1577,10 @@ export default function PackingListForm({
           for (const rollId of rollIds) {
             const rollRef = doc(db, 'inventory', rollId);
             const snap = await transaction.get(rollRef);
-            if (snap.exists()) {
-              rollSnaps[rollId] = snap.data();
-            } else {
-              const localRoll = inventory.find(r => r.id === rollId);
-              if (localRoll) rollSnaps[rollId] = localRoll;
+            if (!snap.exists()) {
+              throw new Error(`El rollo con ID "${rollId}" no existe en el inventario.`);
             }
+            rollSnaps[rollId] = snap.data();
           }
 
           // B. WRITE PHASE
@@ -1502,7 +1592,7 @@ export default function PackingListForm({
 
           // 2. Crear el nuevo documento Packing List con el correlativo asignado
           const newPL: PackingList = {
-            id: `pl-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
+            id: generateUniqueId('pl-'),
             packingListNo: assignedPackingListNo,
             type: packingType,
             clientId,
@@ -1516,12 +1606,6 @@ export default function PackingListForm({
             dispatchAddress: dispatchAddress.trim(),
             omittedFields: omittedList,
             importantNotice: "Revisar el rollo antes de cortar y conservar la etiqueta.",
-            signedBy: {
-              name: "",
-              dni: "",
-              date: docDate,
-              signaturePresent: true
-            },
             createdAt: new Date().toISOString(),
             appVersion: '2.6r'
           };
@@ -1533,7 +1617,6 @@ export default function PackingListForm({
           // 3. Descontar stock para cada rollo utilizado
           for (const rollId of rollIds) {
             const baseData = rollSnaps[rollId];
-            if (!baseData) continue;
 
             const usedMeters = finalItems
               .filter(i => i.rollId === rollId)
@@ -1541,8 +1624,16 @@ export default function PackingListForm({
 
             const initialMeters = Number(baseData.initialMeters || baseData.currentMeters || 0);
             const currentMeters = Number(baseData.currentMeters || 0);
-            const nextMeters = Math.max(0, currentMeters - usedMeters);
-            const status = nextMeters === 0 ? 'sold' : (nextMeters >= initialMeters ? 'available' : 'partially_sold');
+            const EPSILON = 0.001;
+            const rawNextMeters = currentMeters - usedMeters;
+
+            if (rawNextMeters < -EPSILON) {
+              const rollLabel = baseData.rollNumber || rollId;
+              throw new Error(`Stock insuficiente para el rollo ${rollLabel}: disponible ${currentMeters} m, solicitado ${usedMeters} m`);
+            }
+
+            const nextMeters = Math.round(rawNextMeters * 1000) / 1000;
+            const status = nextMeters < EPSILON ? 'sold' : (nextMeters >= initialMeters - EPSILON ? 'available' : 'partially_sold');
 
             const rollRef = doc(db, 'inventory', rollId);
             transaction.update(rollRef, {
@@ -1573,7 +1664,7 @@ export default function PackingListForm({
       const diag = analyzeSystemError(err, { action: 'guardar el Packing List', entity: 'packing_lists' });
       setError({
         title: diag.title,
-        message: diag.message,
+        message: err?.message || diag.message,
         rootCause: diag.rootCause,
         solution: diag.solution,
         technicalDetails: diag.technicalDetails
@@ -1581,6 +1672,7 @@ export default function PackingListForm({
       toast.diagnose(err, { action: 'guardar el Packing List', entity: 'packing_lists' });
     } finally {
       setLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -1607,6 +1699,7 @@ export default function PackingListForm({
 
       if (isEnter && isCtrlOrMeta) {
         e.preventDefault();
+        if (loading || isSubmittingRef.current) return;
         handleSubmit();
       }
 
@@ -1620,7 +1713,7 @@ export default function PackingListForm({
 
     window.addEventListener('keydown', handleFormKeyDown);
     return () => window.removeEventListener('keydown', handleFormKeyDown);
-  }, [handleSubmit, showRecoveryPrompt]);
+  }, [handleSubmit, showRecoveryPrompt, loading]);
 
   return (
     <div className="ticket-perforated p-3.5 sm:p-6 shadow-xs">
