@@ -1,4 +1,31 @@
 import { test, expect } from '@playwright/test';
+import { parseSanitizedNumeric } from '../src/components/packing-list-form/ExcelPasteParser';
+
+test.describe('Pruebas unitarias para parseSanitizedNumeric', () => {
+  const cases: Array<{ input: string; expected: number | null }> = [
+    { input: "48.500", expected: 48.5 },
+    { input: "50.125", expected: 50.125 },
+    { input: "0.250", expected: 0.25 },
+    { input: "120,50", expected: 120.5 },
+    { input: "120.50", expected: 120.5 },
+    { input: "1.250,50", expected: 1250.5 },
+    { input: "1,250.50", expected: 1250.5 },
+    { input: "1 250", expected: 1250 },
+    { input: "50 m", expected: 50 },
+    { input: "50mts", expected: 50 },
+    { input: "12.5kg", expected: 12.5 },
+    { input: "3B04067940", expected: null },
+    { input: "", expected: null },
+    { input: "1.2.3", expected: null },
+    { input: "12,5,3", expected: null },
+  ];
+
+  for (const { input, expected } of cases) {
+    test(`parseSanitizedNumeric("${input}") -> ${expected}`, () => {
+      expect(parseSanitizedNumeric(input)).toBe(expected);
+    });
+  }
+});
 
 test.describe('Infraestructura y Verificación del Sistema', () => {
   test('GET /api/health responde 200 y estado ok', async ({ request }) => {

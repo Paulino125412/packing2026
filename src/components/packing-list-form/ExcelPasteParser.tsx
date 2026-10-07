@@ -3,11 +3,13 @@ import { Provider } from '../../types';
 import { ClipboardPaste } from 'lucide-react';
 import { isSanJacintoProvider } from '../../utils/sanJacintoRules';
 
+export const MAX_ROLL_METERS = 500;
+
 // Helper to sanitize and parse numeric values from Excel cells
 // Handles non-breaking spaces (\u00A0), thousand separators (1,250.50 or 1.250,50), unit suffixes (m, mts, kg), etc.
 export const parseSanitizedNumeric = (val: string | number | null | undefined): number | null => {
   if (val === null || val === undefined) return null;
-  if (typeof val === 'number') return isNaN(val) ? null : val;
+  if (typeof val === 'number') return isNaN(val) || !isFinite(val) ? null : val;
   
   let str = String(val).trim();
   if (!str) return null;
@@ -18,7 +20,7 @@ export const parseSanitizedNumeric = (val: string | number | null | undefined): 
   // Strip metric/measurement units attached to numbers or standing alone
   str = str.replace(/(\d+)\s*(metros|metro|metraje|mts|mtrs|mtr|mt|m|kilos|kilo|kgs|kg|pso|yds|yd|yardas|yarda|cm|mm)\b/gi, '$1')
            .replace(/\b(metros|metro|metraje|mts|mtrs|mtr|mt|m|kilos|kilo|kgs|kg|pso|yds|yd|yardas|yarda|cm|mm)\b/gi, '')
-           .replace(/^[\$€£]\s*/, '')
+           .replace(/^[\$€£S\/]\s*/i, '')
            .trim();
 
   // If alphabetic characters remain (e.g. 'B' in '3B04067940' or 'LUE'), this is NOT a pure numeric measurement
@@ -26,21 +28,71 @@ export const parseSanitizedNumeric = (val: string | number | null | undefined): 
     return null;
   }
 
-  // Handle thousand separators vs decimal separators:
-  // Case A: 1,250.50 (comma is thousands, dot is decimal)
-  if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(str)) {
-    str = str.replace(/,/g, '');
+  // Handle space thousands separators: e.g. "1 250", "1 250,5"
+  while (/(\d)\s+(\d{3})(?=\D|$)/.test(str)) {
+    str = str.replace(/(\d)\s+(\d{3})(?=\D|$)/g, '$1$2');
   }
-  // Case B: 1.250,50 (dot is thousands, comma is decimal)
-  else if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(str)) {
-    str = str.replace(/\./g, '').replace(',', '.');
-  }
-  // Case C: Standard comma decimal (e.g. "120,50" -> "120.50")
-  else if (str.includes(',') && !str.includes('.')) {
-    str = str.replace(',', '.');
+  str = str.trim();
+  if (/\s/.test(str)) {
+    return null;
   }
 
-  const num = parseFloat(str);
+  const dotCount = (str.match(/\./g) || []).length;
+  const commaCount = (str.match(/,/g) || []).length;
+
+  // Case A: Both dot and comma present (e.g. "1.250,50" or "1,250.50")
+  if (dotCount > 0 && commaCount > 0) {
+    const lastDot = str.lastIndexOf('.');
+    const lastComma = str.lastIndexOf(',');
+    if (lastDot > lastComma) {
+      // Dot is decimal, comma is thousands: "1,250.50"
+      if (!/^\d{1,3}(,\d{3})+\.\d+$/.test(str)) {
+        return null;
+      }
+      str = str.replace(/,/g, '');
+    } else {
+      // Comma is decimal, dot is thousands: "1.250,50"
+      if (!/^\d{1,3}(\.\d{3})+,\d+$/.test(str)) {
+        return null;
+      }
+      str = str.replace(/\./g, '').replace(',', '.');
+    }
+  }
+  // Case B: Multiple separators of the same type (e.g. "1.250.300" or "1,250,300")
+  else if (dotCount > 1 && commaCount === 0) {
+    if (/^\d{1,3}(\.\d{3})+$/.test(str)) {
+      str = str.replace(/\./g, '');
+    } else {
+      return null;
+    }
+  }
+  else if (commaCount > 1 && dotCount === 0) {
+    if (/^\d{1,3}(,\d{3})+$/.test(str)) {
+      str = str.replace(/,/g, '');
+    } else {
+      return null;
+    }
+  }
+  // Case C: Single separator (dot or comma)
+  else if (dotCount === 1 || commaCount === 1) {
+    const sep = dotCount === 1 ? '.' : ',';
+    const parts = str.split(sep);
+    if (parts.length !== 2) return null;
+    const [intPart, decPart] = parts;
+
+    if (!/^\d+$/.test(intPart) || !/^\d+$/.test(decPart)) {
+      return null;
+    }
+
+    str = `${intPart}.${decPart}`;
+  }
+
+  // Full match validation: strictly valid numeric format without extra symbols
+  if (!/^-?\d+(\.\d+)?$/.test(str)) {
+    return null;
+  }
+
+  const num = Number(str);
   return isNaN(num) || !isFinite(num) ? null : num;
 };
 

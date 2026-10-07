@@ -5,7 +5,7 @@ import { collection, doc } from 'firebase/firestore';
 import { Plus, Trash2, Calendar, ShoppingBag, CheckCircle2, ChevronRight, X, FileText, Layers, AlertTriangle, Clock, Scissors, Archive } from 'lucide-react';
 import SearchableCombobox from './SearchableCombobox';
 import { FormRollEntry, FormArticleGroup } from './packing-list-form/types';
-import { resolveColumnsForText, parseSanitizedNumeric, isObservationOrSummaryLine } from './packing-list-form/ExcelPasteParser';
+import { resolveColumnsForText, parseSanitizedNumeric, isObservationOrSummaryLine, MAX_ROLL_METERS } from './packing-list-form/ExcelPasteParser';
 import ClientSellerSelector from './packing-list-form/ClientSellerSelector';
 import ArticleGroupSection from './packing-list-form/ArticleGroupSection';
 import AlertBanner from './AlertBanner';
@@ -1230,6 +1230,14 @@ export default function PackingListForm({
           setError(diag);
           toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
           return;
+        }
+
+        if (numMeters > MAX_ROLL_METERS) {
+          const confirmed = window.confirm(`El metraje ${numMeters} m es inusualmente alto. ¿Es correcto?`);
+          if (!confirmed) {
+            setLoading(false);
+            return;
+          }
         }
       }
     }
