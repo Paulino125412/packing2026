@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { RollItem, Provider, Article } from '../types';
 import { db, addDoc, updateDoc, deleteDoc, fetchAllInventoryDocs, fetchAllSoldRolls } from '../firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, writeBatch } from 'firebase/firestore';
 import InventoryExcelPasteParser from './inventory/InventoryExcelPasteParser';
 import { Search, Filter, Plus, FileSpreadsheet, Info, Wrench, Trash2, ShieldAlert, X, CheckCircle, RefreshCw, Package, Tag, ScanLine, CheckSquare, Square } from 'lucide-react';
 import { exportInventoryToExcel } from '../utils/excelExport';
@@ -335,8 +335,8 @@ export default function InventoryManager({
         throw new Error('El proveedor requiere ingresar un número de rollo.');
       }
 
-      // Check if roll number already exists in inventory
-      const duplicate = inventory.find(i => i.rollNumber.toLowerCase() === finalRollNo.toLowerCase());
+      // Check if roll number already exists in inventory (across all loaded/searched inventory)
+      const duplicate = effectiveInventory.find(i => i.rollNumber.toLowerCase() === finalRollNo.toLowerCase());
       if (duplicate && (activeProviderConfig?.hasRollNo ?? true)) {
         throw new Error(`Ya existe un rollo registrado con el número "${finalRollNo}"`);
       }
@@ -394,9 +394,16 @@ export default function InventoryManager({
     setLoading(true);
     setError(null);
     try {
-      // Loop through and insert all rolls
-      for (const roll of newRolls) {
-        await addDoc(collection(db, 'inventory'), roll);
+      // Divide in batches of up to 400 documents for atomic and safe Firestore writes
+      const BATCH_SIZE = 400;
+      for (let i = 0; i < newRolls.length; i += BATCH_SIZE) {
+        const chunk = newRolls.slice(i, i + BATCH_SIZE);
+        const batch = writeBatch(db);
+        for (const roll of chunk) {
+          const docRef = doc(collection(db, 'inventory'));
+          batch.set(docRef, roll);
+        }
+        await batch.commit();
       }
 
       await onRefresh();
@@ -433,7 +440,7 @@ export default function InventoryManager({
     e.preventDefault();
     if (!adjustingId) return;
 
-    const roll = inventory.find(r => r.id === adjustingId);
+    const roll = effectiveInventory.find(r => r.id === adjustingId);
     if (!roll) return;
 
     if (adjustedMeters < 0) {
@@ -442,6 +449,18 @@ export default function InventoryManager({
         message: 'Los metros actuales no pueden ser menores a 0.',
         rootCause: 'Se intentó ingresar un valor numérico negativo en el stock físico.',
         solution: 'Ingrese un saldo igual o mayor a 0 metros.'
+      };
+      setError(diag);
+      toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
+      return;
+    }
+
+    if (adjustedMeters > roll.initialMeters) {
+      const diag = {
+        title: 'Metraje Excede la Capacidad Inicial',
+        message: `Los metros actuales (${adjustedMeters}m) no pueden superar los metros iniciales de ${roll.initialMeters}m. Si desea aumentar la capacidad, edite el rollo.`,
+        rootCause: 'El saldo físico indicado es mayor al metraje inicial con el que ingresó el rollo al almacén.',
+        solution: `Ingrese un valor entre 0 y ${roll.initialMeters}m, o edite los metros iniciales del rollo.`
       };
       setError(diag);
       toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });

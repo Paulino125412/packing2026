@@ -1026,7 +1026,7 @@ export default function PackingListForm({
           rolls: g.rolls.map(r => {
             if (r.id === rollId) {
               if (field === 'rollId') {
-                const warehouseRoll = inventory.find(wr => wr.id === value);
+                const warehouseRoll = effectiveFullInventory.find(wr => wr.id === value);
                 if (warehouseRoll) {
                   return {
                     ...r,
@@ -1034,7 +1034,11 @@ export default function PackingListForm({
                     rollNumber: warehouseRoll.rollNumber,
                     meters: warehouseRoll.currentMeters,
                     maxMeters: warehouseRoll.currentMeters,
-                    tono: isSanJacinto ? normalizeSanJacintoTono(warehouseRoll.tono || r.tono) : (warehouseRoll.tono || r.tono)
+                    tono: isSanJacinto ? normalizeSanJacintoTono(warehouseRoll.tono || r.tono) : (warehouseRoll.tono || r.tono),
+                    lot: warehouseRoll.lot || r.lot,
+                    partida: warehouseRoll.partida || r.partida,
+                    width: warehouseRoll.width || r.width,
+                    weight: warehouseRoll.weight || r.weight
                   };
                 }
               }

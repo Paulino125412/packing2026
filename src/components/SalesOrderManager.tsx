@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { SalesOrder, SalesOrderItem, Client, Seller, Article } from '../types';
 import { db, addDoc, updateDoc, deleteDoc, getLocalStorageCollection, getLocalMode } from '../firebase';
 import { collection, onSnapshot, doc, query, orderBy, limit } from 'firebase/firestore';
@@ -25,6 +25,14 @@ import PrintBlankSalesOrderModal from './PrintBlankSalesOrderModal';
 import { lookupRucOrDni } from '../lib/sunat';
 import { useToast } from '../context/ToastContext';
 import { analyzeSystemError } from '../lib/diagnostics';
+
+const getLocalDateStr = (): string => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 interface SalesOrderManagerProps {
   clients: Client[];
@@ -58,9 +66,13 @@ export default function SalesOrderManager({
   // Delete Target Modal
   const [deleteTarget, setDeleteTarget] = useState<SalesOrder | null>(null);
 
+  // Submitting ref for synchronous double-save prevention
+  const isSubmittingRef = useRef(false);
+
   // Editing state ID
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingOrderNo, setEditingOrderNo] = useState<string>('');
+  const [editingCreatedAt, setEditingCreatedAt] = useState<string>('');
 
   // Draft auto-save state
   const [hasCheckedDraft, setHasCheckedDraft] = useState(false);
@@ -72,15 +84,9 @@ export default function SalesOrderManager({
   // Form State
   const [sellerName, setSellerName] = useState('');
   const [sellerId, setSellerId] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => getLocalDateStr());
 
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }, []);
+  const todayStr = useMemo(() => getLocalDateStr(), []);
 
   // Client & Dispatch Details
   const [selectedClientId, setSelectedClientId] = useState('');
@@ -91,13 +97,7 @@ export default function SalesOrderManager({
   const [dispatchContactPhone, setDispatchContactPhone] = useState('');
   const [dispatchAddress, setDispatchAddress] = useState('');
   const [floorNumber, setFloorNumber] = useState('');
-  const [dispatchDate, setDispatchDate] = useState(() => {
-    const d = new Date();
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  });
+  const [dispatchDate, setDispatchDate] = useState(() => getLocalDateStr());
   const [dispatchTime, setDispatchTime] = useState('Por la mañana');
   const [paymentMethod, setPaymentMethod] = useState('Contado');
 
@@ -479,9 +479,10 @@ export default function SalesOrderManager({
   const handleResetForm = () => {
     setEditingId(null);
     setEditingOrderNo('');
+    setEditingCreatedAt('');
     setSellerName(sellers.length > 0 ? sellers[0].name : currentOperator);
     setSellerId(sellers.length > 0 ? sellers[0].id : '');
-    setDate(new Date().toISOString().split('T')[0]);
+    setDate(getLocalDateStr());
 
     setSelectedClientId('');
     setClientName('');
@@ -491,7 +492,7 @@ export default function SalesOrderManager({
     setDispatchContactPhone('');
     setDispatchAddress('');
     setFloorNumber('');
-    setDispatchDate(new Date().toISOString().split('T')[0]);
+    setDispatchDate(getLocalDateStr());
     setDispatchTime('09:00');
     setPaymentMethod('Contado');
 
@@ -519,7 +520,11 @@ export default function SalesOrderManager({
 
   // Save Sales Order
   const handleSaveOrder = async (shouldPrint = false) => {
+    if (loading || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+
     if (!clientName.trim()) {
+      isSubmittingRef.current = false;
       const diag = {
         title: 'Cliente Requerido',
         message: 'Por favor ingrese o seleccione el nombre del Cliente.',
@@ -559,6 +564,7 @@ export default function SalesOrderManager({
     );
 
     if (incompleteRows.length > 0) {
+      isSubmittingRef.current = false;
       const diag = {
         title: 'Filas Incompletas',
         message: `Hay ${incompleteRows.length} fila(s) con precio o cantidad pero sin artículo/descripción. Por favor asigne el producto o complete la descripción antes de guardar.`,
@@ -574,6 +580,7 @@ export default function SalesOrderManager({
     }
 
     if (validItems.length === 0) {
+      isSubmittingRef.current = false;
       const diag = {
         title: 'Artículos Requeridos',
         message: 'Por favor ingrese al menos un artículo o producto con su descripción.',
@@ -591,12 +598,14 @@ export default function SalesOrderManager({
     setLoading(true);
 
     const generatedOrderNo = (editingId && editingOrderNo) ? editingOrderNo : `FV-${Date.now()}`;
+    const existingOrder = editingId ? orders.find(o => o.id === editingId) : null;
+    const orderCreatedAt = editingId ? (existingOrder?.createdAt || editingCreatedAt || new Date().toISOString()) : new Date().toISOString();
 
     const payload: Omit<SalesOrder, 'id'> = {
       orderNo: generatedOrderNo,
       sellerId: sellerId || '',
       sellerName: sellerName.trim() || currentOperator,
-      date: date || new Date().toISOString().split('T')[0],
+      date: date || getLocalDateStr(),
       clientId: selectedClientId || '',
       clientName: clientName.trim(),
       clientRucDni: clientRucDni.trim(),
@@ -624,7 +633,8 @@ export default function SalesOrderManager({
         totalAmount: Number(i.totalAmount) || 0
       })),
       totalAmount: computedTotal,
-      createdAt: new Date().toISOString(),
+      createdAt: orderCreatedAt,
+      ...(editingId ? { updatedAt: new Date().toISOString() } : {}),
       appVersion: '2.6r'
     };
 
@@ -638,6 +648,7 @@ export default function SalesOrderManager({
         isTestSimulation: true
       };
       setLoading(false);
+      isSubmittingRef.current = false;
       toast.info(`🧪 MODO PRUEBA: Orden de Venta simulada como "${simulatedOrderNo}". NO se guardó en la base de datos ni se consumió correlativo.`, {
         title: 'Simulación de Ensayo Exitosa'
       });
@@ -668,6 +679,7 @@ export default function SalesOrderManager({
       toast.diagnose(err, { action: 'guardar la Orden de Venta', entity: 'sales_orders' });
     } finally {
       setLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -675,9 +687,10 @@ export default function SalesOrderManager({
   const handleEditOrder = (order: SalesOrder) => {
     setEditingId(order.id);
     setEditingOrderNo(order.orderNo || '');
+    setEditingCreatedAt(order.createdAt || '');
     setSellerName(order.sellerName || '');
     setSellerId(order.sellerId || '');
-    setDate(order.date || new Date().toISOString().split('T')[0]);
+    setDate(order.date || getLocalDateStr());
 
     setSelectedClientId(order.clientId || '');
     setClientName(order.clientName || '');
