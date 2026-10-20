@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { 
   db, 
   seedDatabaseIfEmpty, 
@@ -59,11 +59,28 @@ type AppTab = 'generate' | 'sales_order' | 'catalogs' | 'inventory' | 'history' 
 
 export default function App() {
   const toast = useToast();
-  const { currentUser, isLoading: authLoading, logout, hasPermission } = useAuth();
+  const { currentUser, isLoading: authLoading, logout, hasPermission, mustChangePassword } = useAuth();
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const [activeTab, setActiveTab] = useState<AppTab>('generate');
   const [currentOperator, setCurrentOperator] = useState('Paul Almacén');
+
+  // Cerrar menú de usuario al hacer clic fuera del contenedor (Click-Outside)
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setIsUserMenuOpen(false);
+      }
+    };
+
+    if (isUserMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isUserMenuOpen]);
 
   // Modo Prueba (Simulación sin guardar en base de datos ni consumir correlativos)
   const [isTestMode, setIsTestMode] = useState<boolean>(() => {
@@ -1206,7 +1223,7 @@ export default function App() {
             </div>
 
             {/* User Account Menu Dropdown */}
-            <div className="relative border-l border-app-border pl-1.5 sm:pl-2">
+            <div ref={userMenuRef} className="relative border-l border-app-border pl-1.5 sm:pl-2">
               <button
                 type="button"
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
@@ -1547,10 +1564,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Change Password Modal */}
+      {/* Change Password Modal (Normal o Forzado por seguridad si usa la clave predeterminada) */}
       <ChangePasswordModal 
-        isOpen={isChangePasswordOpen} 
+        isOpen={isChangePasswordOpen || mustChangePassword} 
         onClose={() => setIsChangePasswordOpen(false)} 
+        isForced={mustChangePassword}
       />
     </div>
   );

@@ -37,6 +37,7 @@ interface AuthContextType {
   toggleUserStatus: (id: string) => Promise<{ success: boolean; message?: string }>;
   deleteUser: (id: string) => Promise<{ success: boolean; message?: string }>;
   changeMyPassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; message?: string }>;
+  mustChangePassword: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -57,6 +58,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
+  const [mustChangePassword, setMustChangePassword] = useState<boolean>(() => {
+    return sessionStorage.getItem('texflow_must_change_password') === 'true';
+  });
 
   // Guardar sesión en localStorage
   const saveSession = (user: UserProfile | null) => {
@@ -67,6 +71,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem(LOCAL_STORAGE_SESSION_KEY);
     }
   };
+
+  // Verificar si la contraseña del usuario actual es la contraseña por defecto admin123
+  useEffect(() => {
+    if (currentUser) {
+      verifyPassword('admin123', currentUser.salt, currentUser.passwordHash)
+        .then((isDefault) => {
+          if (isDefault) {
+            setMustChangePassword(true);
+            sessionStorage.setItem('texflow_must_change_password', 'true');
+          } else {
+            setMustChangePassword(false);
+            sessionStorage.removeItem('texflow_must_change_password');
+          }
+        })
+        .catch(() => {
+          // Si hay algún error, no forzar cambio
+        });
+    } else {
+      setMustChangePassword(false);
+      sessionStorage.removeItem('texflow_must_change_password');
+    }
+  }, [currentUser]);
 
   // Inicializar y asegurar que el Super Admin exista
   const ensureSuperAdminExists = useCallback(async (existingUsers: UserProfile[]) => {
@@ -117,21 +143,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await ensureSuperAdminExists(users);
 
         // Si el usuario actual está logueado, sincronizar sus permisos y estado
+        // Corrección: actualizar localStorage directamente para evitar doble invocación anidada de setCurrentUser
         setCurrentUser((prev) => {
           if (!prev) return null;
           const freshUser = users.find(u => u.id === prev.id || u.email.toLowerCase() === prev.email.toLowerCase());
-          if (!freshUser) {
-            // Usuario fue eliminado
-            saveSession(null);
+          if (!freshUser || freshUser.status === 'inactive') {
+            // Usuario fue eliminado o desactivado
+            localStorage.removeItem(LOCAL_STORAGE_SESSION_KEY);
             return null;
           }
-          if (freshUser.status === 'inactive') {
-            // Usuario desactivado
-            saveSession(null);
-            return null;
-          }
-          // Actualizar datos en memoria y storage
-          saveSession(freshUser);
+          // Actualizar datos directamente en storage y retornar el nuevo usuario
+          localStorage.setItem(LOCAL_STORAGE_SESSION_KEY, JSON.stringify(freshUser));
           return freshUser;
         });
 
@@ -236,6 +258,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Ignorar si offline
     }
 
+    if (cleanPassword === 'admin123') {
+      setMustChangePassword(true);
+      sessionStorage.setItem('texflow_must_change_password', 'true');
+    }
+
     saveSession(updatedUser);
     return { success: true };
   };
@@ -243,6 +270,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Logout
   const logout = () => {
     saveSession(null);
+    setMustChangePassword(false);
+    sessionStorage.removeItem('texflow_must_change_password');
   };
 
   // Verificación de permisos
@@ -406,6 +435,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'La nueva contraseña debe tener al menos 6 caracteres.' };
     }
 
+    if (newPassword.trim() === 'admin123') {
+      return { success: false, message: 'La nueva contraseña no puede ser la clave por defecto admin123. Elige una diferente.' };
+    }
+
     try {
       const { hash, salt } = await hashPassword(newPassword.trim());
       await updateDoc(doc(db, 'users', currentUser.id), {
@@ -419,6 +452,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         passwordHash: hash,
         salt: salt
       });
+
+      setMustChangePassword(false);
+      sessionStorage.removeItem('texflow_must_change_password');
 
       return { success: true };
     } catch (err: unknown) {
@@ -440,7 +476,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updateUser,
         toggleUserStatus,
         deleteUser,
-        changeMyPassword
+        changeMyPassword,
+        mustChangePassword
       }}
     >
       {children}

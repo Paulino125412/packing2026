@@ -72,6 +72,12 @@ export default function UserManager() {
 
   // Open modal for editing
   const handleOpenEditUser = (user: UserProfile) => {
+    const isTargetSuperAdmin = user.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    const isCurrentSessionSuperAdmin = currentUser?.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    if (isTargetSuperAdmin && !isCurrentSessionSuperAdmin) {
+      toast.error('Solo el propio Super Admin puede editar sus datos y permisos.');
+      return;
+    }
     setEditingUser(user);
     setFormName(user.name);
     setFormEmail(user.email);
@@ -430,38 +436,69 @@ export default function UserManager() {
                       {/* Actions */}
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setTargetPasswordUser(user);
-                              setNewPasswordValue('');
-                              setIsPasswordModalOpen(true);
-                            }}
-                            title="Cambiar contraseña de este usuario"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition-colors cursor-pointer"
-                          >
-                            <Key className="w-4 h-4" />
-                          </button>
+                          {(() => {
+                            const isCurrentSessionSuperAdmin = currentUser?.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+                            const canModifyTarget = !isSuperAdmin || isCurrentSessionSuperAdmin;
 
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditUser(user)}
-                            title="Editar permisos y datos"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition-colors cursor-pointer"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
+                            return (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={!canModifyTarget}
+                                  onClick={() => {
+                                    if (!canModifyTarget) return;
+                                    setTargetPasswordUser(user);
+                                    setNewPasswordValue('');
+                                    setIsPasswordModalOpen(true);
+                                  }}
+                                  title={
+                                    !canModifyTarget
+                                      ? 'Solo el propio Super Admin puede modificar su clave'
+                                      : 'Cambiar contraseña de este usuario'
+                                  }
+                                  className={`p-1.5 rounded-lg transition-colors ${
+                                    canModifyTarget
+                                      ? 'text-slate-400 hover:text-amber-400 hover:bg-slate-800 cursor-pointer'
+                                      : 'text-slate-600 opacity-40 cursor-not-allowed'
+                                  }`}
+                                >
+                                  <Key className="w-4 h-4" />
+                                </button>
 
-                          {!isSuperAdmin && (
-                            <button
-                              type="button"
-                              onClick={() => handleDelete(user)}
-                              title="Eliminar usuario"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors cursor-pointer"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                                <button
+                                  type="button"
+                                  disabled={!canModifyTarget}
+                                  onClick={() => {
+                                    if (!canModifyTarget) return;
+                                    handleOpenEditUser(user);
+                                  }}
+                                  title={
+                                    !canModifyTarget
+                                      ? 'Solo el propio Super Admin puede editar sus datos'
+                                      : 'Editar permisos y datos'
+                                  }
+                                  className={`p-1.5 rounded-lg transition-colors ${
+                                    canModifyTarget
+                                      ? 'text-slate-400 hover:text-indigo-400 hover:bg-slate-800 cursor-pointer'
+                                      : 'text-slate-600 opacity-40 cursor-not-allowed'
+                                  }`}
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+
+                                {!isSuperAdmin && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDelete(user)}
+                                    title="Eliminar usuario"
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       </td>
                     </tr>

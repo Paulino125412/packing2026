@@ -8,8 +8,7 @@ import {
   ShieldCheck, 
   Layers, 
   ArrowRight, 
-  AlertCircle,
-  Sparkles
+  AlertCircle
 } from 'lucide-react';
 
 export default function LoginScreen() {
@@ -40,12 +39,6 @@ export default function LoginScreen() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleFillAdmin = () => {
-    setEmail('paulcalebfs123@gmail.com');
-    setPassword('admin123');
-    setErrorMessage(null);
   };
 
   return (
@@ -131,18 +124,6 @@ export default function LoginScreen() {
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
               </div>
-            </div>
-
-            {/* Quick autofill for default admin */}
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={handleFillAdmin}
-                className="w-full py-2 px-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/60 rounded-xl text-xs text-slate-300 flex items-center justify-center gap-2 transition-all hover:border-indigo-500/50"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Autocompletar Admin (<strong className="text-white">paulcalebfs123@gmail.com</strong>)</span>
-              </button>
             </div>
 
             {/* Submit Button */}
