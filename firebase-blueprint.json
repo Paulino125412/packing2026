@@ -104,6 +104,23 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["currentValue"]
+    },
+    "user": {
+      "title": "User Profile",
+      "description": "System user account with hashed password and role permissions",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "passwordHash": { "type": "string" },
+        "salt": { "type": "string" },
+        "role": { "type": "string" },
+        "status": { "type": "string" },
+        "permissions": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "email", "passwordHash", "salt", "role", "status", "permissions"]
     }
   },
   "firestore": {
@@ -134,6 +151,10 @@
     "counters": {
       "schema": { "$ref": "counter" },
       "description": "Atomic counters collection for correlative numbers"
+    },
+    "users": {
+      "schema": { "$ref": "user" },
+      "description": "User profiles and credentials collection"
     }
   }
 }

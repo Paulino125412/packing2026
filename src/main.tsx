@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import * as Sentry from '@sentry/react';
 import App from './App.tsx';
 import { ToastProvider } from './context/ToastContext.tsx';
+import { AuthProvider } from './context/AuthContext.tsx';
 import './index.css';
 
 // Handle dynamic module import failures when a new applet version is published
@@ -86,7 +87,9 @@ createRoot(document.getElementById('root')!).render(
       )}
     >
       <ToastProvider>
-        <App />
+        <AuthProvider>
+          <App />
+        </AuthProvider>
       </ToastProvider>
     </Sentry.ErrorBoundary>
   </StrictMode>,

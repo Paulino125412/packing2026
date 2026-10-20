@@ -28,13 +28,22 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Menu,
-  X
+  X,
+  Users,
+  LogOut,
+  Key,
+  ShieldCheck,
+  ShieldAlert,
+  ChevronDown
 } from 'lucide-react';
 
 // Components
 import PackingListForm from './components/PackingListForm';
 import AlertBanner from './components/AlertBanner';
 import { useToast } from './context/ToastContext';
+import { useAuth } from './context/AuthContext';
+import LoginScreen from './components/LoginScreen';
+import ChangePasswordModal from './components/ChangePasswordModal';
 
 // Lazy-loaded modules for code-splitting
 const PackingListHistory = lazy(() => import('./components/PackingListHistory'));
@@ -44,11 +53,15 @@ const SalesOrderManager = lazy(() => import('./components/SalesOrderManager'));
 const PrintPackingList = lazy(() => import('./components/PrintPackingList'));
 const QuickSearchPalette = lazy(() => import('./components/QuickSearchPalette'));
 const DevRulesMonitor = lazy(() => import('./components/DevRulesMonitor'));
+const UserManager = lazy(() => import('./components/UserManager'));
 
-type AppTab = 'generate' | 'sales_order' | 'catalogs' | 'inventory' | 'history';
+type AppTab = 'generate' | 'sales_order' | 'catalogs' | 'inventory' | 'history' | 'users';
 
 export default function App() {
   const toast = useToast();
+  const { currentUser, isLoading: authLoading, logout, hasPermission } = useAuth();
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<AppTab>('generate');
   const [currentOperator, setCurrentOperator] = useState('Paul Almacén');
 
@@ -57,7 +70,36 @@ export default function App() {
     return localStorage.getItem('texflow_test_mode') === 'true';
   });
 
+  // Sync operator with authenticated user
+  useEffect(() => {
+    if (currentUser?.name) {
+      setCurrentOperator(currentUser.name);
+    }
+  }, [currentUser?.name]);
+
+  // Adjust active tab if user doesn't have permission for current tab
+  useEffect(() => {
+    if (!currentUser) return;
+    const permittedTabs: AppTab[] = [];
+    if (hasPermission('packingListCreate')) permittedTabs.push('generate');
+    if (hasPermission('salesOrdersCreate') || hasPermission('salesOrdersView')) permittedTabs.push('sales_order');
+    if (hasPermission('manageArticles') || hasPermission('manageProviders') || hasPermission('manageClients') || hasPermission('manageSellers')) permittedTabs.push('catalogs');
+    if (hasPermission('inventoryView')) permittedTabs.push('inventory');
+    if (hasPermission('packingListHistory')) permittedTabs.push('history');
+    if (hasPermission('manageUsers') || currentUser.role === 'admin') permittedTabs.push('users');
+
+    if (permittedTabs.length > 0 && !permittedTabs.includes(activeTab)) {
+      setActiveTab(permittedTabs[0]);
+    }
+  }, [currentUser, activeTab, hasPermission]);
+
   const toggleTestMode = () => {
+    if (!hasPermission('testModeAccess')) {
+      toast.error('No tienes permiso para modificar el Modo Prueba.', {
+        title: 'Acceso Denegado'
+      });
+      return;
+    }
     setIsTestMode(prev => {
       const next = !prev;
       localStorage.setItem('texflow_test_mode', String(next));
@@ -524,6 +566,17 @@ export default function App() {
             onToggleTestMode={toggleTestMode}
           />
         );
+      case 'users':
+        return (
+          <Suspense fallback={
+            <div className="flex flex-col justify-center items-center h-80 gap-3 bg-app-surface border border-app-border rounded-lg p-8 shadow-xs">
+              <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-app-secondary"></div>
+              <p className="text-xs font-semibold text-app-text">Cargando gestión de usuarios...</p>
+            </div>
+          }>
+            <UserManager />
+          </Suspense>
+        );
       default:
         return null;
     }
@@ -560,6 +613,19 @@ export default function App() {
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-4 text-white font-sans">
+        <div className="w-10 h-10 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-slate-400 font-medium tracking-wide">Cargando TexFlow WMS...</p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <LoginScreen />;
+  }
 
   return (
     <div translate="no" className={`h-screen bg-app-bg text-app-text flex flex-col md:flex-row font-sans select-none antialiased notranslate overflow-hidden ${theme === 'dark' ? 'dark' : ''}`}>
@@ -646,65 +712,89 @@ export default function App() {
             Módulos del Sistema
           </div>
 
-          <button
-            onClick={() => handleTabChange('generate')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
-              activeTab === 'generate'
-                ? 'bg-app-primary text-white shadow-xs'
-                : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-          >
-            <FileText size={18} className={activeTab === 'generate' ? 'text-white' : 'text-app-text/60'} />
-            <span className="truncate">NUEVO PACKING LIST</span>
-          </button>
+          {hasPermission('packingListCreate') && (
+            <button
+              onClick={() => handleTabChange('generate')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+                activeTab === 'generate'
+                  ? 'bg-app-primary text-white shadow-xs'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+            >
+              <FileText size={18} className={activeTab === 'generate' ? 'text-white' : 'text-app-text/60'} />
+              <span className="truncate">NUEVO PACKING LIST</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('sales_order')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
-              activeTab === 'sales_order'
-                ? 'bg-app-primary text-white shadow-xs'
-                : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-          >
-            <ClipboardList size={18} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/60'} />
-            <span className="truncate">ÓRDENES DE VENTA</span>
-          </button>
+          {(hasPermission('salesOrdersCreate') || hasPermission('salesOrdersView')) && (
+            <button
+              onClick={() => handleTabChange('sales_order')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+                activeTab === 'sales_order'
+                  ? 'bg-app-primary text-white shadow-xs'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+            >
+              <ClipboardList size={18} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/60'} />
+              <span className="truncate">ÓRDENES DE VENTA</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('catalogs')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
-              activeTab === 'catalogs'
-                ? 'bg-app-primary text-white shadow-xs'
-                : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-          >
-            <Settings size={18} className={activeTab === 'catalogs' ? 'text-white' : 'text-app-text/60'} />
-            <span className="truncate">CATÁLOGOS</span>
-          </button>
+          {(hasPermission('manageArticles') || hasPermission('manageProviders') || hasPermission('manageClients') || hasPermission('manageSellers')) && (
+            <button
+              onClick={() => handleTabChange('catalogs')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+                activeTab === 'catalogs'
+                  ? 'bg-app-primary text-white shadow-xs'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+            >
+              <Settings size={18} className={activeTab === 'catalogs' ? 'text-white' : 'text-app-text/60'} />
+              <span className="truncate">CATÁLOGOS</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('inventory')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
-              activeTab === 'inventory'
-                ? 'bg-app-primary text-white shadow-xs'
-                : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-          >
-            <Warehouse size={18} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/60'} />
-            <span className="truncate">INVENTARIO</span>
-          </button>
+          {hasPermission('inventoryView') && (
+            <button
+              onClick={() => handleTabChange('inventory')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+                activeTab === 'inventory'
+                  ? 'bg-app-primary text-white shadow-xs'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+            >
+              <Warehouse size={18} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/60'} />
+              <span className="truncate">INVENTARIO</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('history')}
-            className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
-              activeTab === 'history'
-                ? 'bg-app-primary text-white shadow-xs'
-                : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-          >
-            <History size={18} className={activeTab === 'history' ? 'text-white' : 'text-app-text/60'} />
-            <span className="truncate">HISTORIAL DE DESPACHOS</span>
-          </button>
+          {hasPermission('packingListHistory') && (
+            <button
+              onClick={() => handleTabChange('history')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+                activeTab === 'history'
+                  ? 'bg-app-primary text-white shadow-xs'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+            >
+              <History size={18} className={activeTab === 'history' ? 'text-white' : 'text-app-text/60'} />
+              <span className="truncate">HISTORIAL DE DESPACHOS</span>
+            </button>
+          )}
+
+          {(hasPermission('manageUsers') || currentUser?.role === 'admin') && (
+            <button
+              onClick={() => handleTabChange('users')}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+                activeTab === 'users'
+                  ? 'bg-app-primary text-white shadow-xs'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+            >
+              <Users size={18} className={activeTab === 'users' ? 'text-white' : 'text-app-text/60'} />
+              <span className="truncate">USUARIOS & ACCESOS</span>
+            </button>
+          )}
         </nav>
 
         {/* Mobile Quick Connection Action */}
@@ -723,25 +813,43 @@ export default function App() {
           </div>
         )}
 
-        {/* Mobile Operator Selector Section */}
-        <div className="p-3.5 border-t border-app-border/45 bg-app-surface/20 shrink-0">
+        {/* Mobile User Profile Section */}
+        <div className="p-3.5 border-t border-app-border/45 bg-app-surface/20 shrink-0 space-y-2">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded bg-app-surface border border-app-border flex items-center justify-center text-app-text/70 shrink-0">
-              <User size={15} />
+            <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm">
+              {currentUser.name.charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <span className="block text-[8px] uppercase font-bold tracking-widest text-app-text/50">Operario Actual</span>
-              <select
-                value={currentOperator}
-                onChange={e => setCurrentOperator(e.target.value)}
-                className="bg-transparent text-xs font-medium text-app-text focus:outline-hidden cursor-pointer w-full text-left truncate -ml-0.5 mt-0.5 border-none p-0 focus:ring-0"
-              >
-                <option value="Paul Almacén" className="bg-app-surface text-app-text">Paul (Almacén Central)</option>
-                <option value="Administrador" className="bg-app-surface text-app-text">Administrador de Red</option>
-                <option value="Operador Turno Mañana" className="bg-app-surface text-app-text">Operador Turno Mañana</option>
-                <option value="Despachador Principal" className="bg-app-surface text-app-text">Despachador Principal</option>
-              </select>
+              <span className="block text-xs font-semibold text-app-text truncate">{currentUser.name}</span>
+              <span className="block text-[10px] text-app-text/60 font-mono truncate">{currentUser.email}</span>
+              <span className="inline-block mt-0.5 text-[9px] uppercase font-bold px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                {currentUser.role}
+              </span>
             </div>
+          </div>
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => {
+                setIsChangePasswordOpen(true);
+                setIsMobileMenuOpen(false);
+              }}
+              className="flex-1 py-1.5 px-2 bg-app-surface border border-app-border rounded text-[11px] font-medium text-app-text/80 hover:text-app-text flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Key size={12} />
+              <span>Clave</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                logout();
+                setIsMobileMenuOpen(false);
+              }}
+              className="py-1.5 px-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded text-[11px] font-medium hover:bg-red-500/20 flex items-center justify-center gap-1 cursor-pointer"
+            >
+              <LogOut size={12} />
+              <span>Salir</span>
+            </button>
           </div>
         </div>
       </aside>
@@ -834,75 +942,101 @@ export default function App() {
             </div>
           )}
 
-          <button
-            onClick={() => handleTabChange('generate')}
-            className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
-              activeTab === 'generate'
-                ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-            id="tab-generate"
-            title="NUEVO PACKING LIST"
-          >
-            <FileText size={16} className={activeTab === 'generate' ? 'text-white' : 'text-app-text/50'} />
-            {isSidebarExpanded && <span className="truncate">NUEVO PACKING LIST</span>}
-          </button>
+          {hasPermission('packingListCreate') && (
+            <button
+              onClick={() => handleTabChange('generate')}
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+                activeTab === 'generate'
+                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
+                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+              id="tab-generate"
+              title="NUEVO PACKING LIST"
+            >
+              <FileText size={16} className={activeTab === 'generate' ? 'text-white' : 'text-app-text/50'} />
+              {isSidebarExpanded && <span className="truncate">NUEVO PACKING LIST</span>}
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('sales_order')}
-            className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
-              activeTab === 'sales_order'
-                ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-            id="tab-sales-order"
-            title="ÓRDENES DE VENTA"
-          >
-            <ClipboardList size={16} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/50'} />
-            {isSidebarExpanded && <span className="truncate">ÓRDENES DE VENTA</span>}
-          </button>
+          {(hasPermission('salesOrdersCreate') || hasPermission('salesOrdersView')) && (
+            <button
+              onClick={() => handleTabChange('sales_order')}
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+                activeTab === 'sales_order'
+                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
+                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+              id="tab-sales-order"
+              title="ÓRDENES DE VENTA"
+            >
+              <ClipboardList size={16} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/50'} />
+              {isSidebarExpanded && <span className="truncate">ÓRDENES DE VENTA</span>}
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('catalogs')}
-            className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
-              activeTab === 'catalogs'
-                ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-            id="tab-catalogs"
-            title="CATÁLOGOS"
-          >
-            <Settings size={16} className={activeTab === 'catalogs' ? 'text-white' : 'text-app-text/50'} />
-            {isSidebarExpanded && <span className="truncate">CATÁLOGOS</span>}
-          </button>
+          {(hasPermission('manageArticles') || hasPermission('manageProviders') || hasPermission('manageClients') || hasPermission('manageSellers')) && (
+            <button
+              onClick={() => handleTabChange('catalogs')}
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+                activeTab === 'catalogs'
+                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
+                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+              id="tab-catalogs"
+              title="CATÁLOGOS"
+            >
+              <Settings size={16} className={activeTab === 'catalogs' ? 'text-white' : 'text-app-text/50'} />
+              {isSidebarExpanded && <span className="truncate">CATÁLOGOS</span>}
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('inventory')}
-            className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
-              activeTab === 'inventory'
-                ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-            id="tab-inventory"
-            title="INVENTARIO"
-          >
-            <Warehouse size={16} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/50'} />
-            {isSidebarExpanded && <span className="truncate">INVENTARIO</span>}
-          </button>
+          {hasPermission('inventoryView') && (
+            <button
+              onClick={() => handleTabChange('inventory')}
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+                activeTab === 'inventory'
+                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
+                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+              id="tab-inventory"
+              title="INVENTARIO"
+            >
+              <Warehouse size={16} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/50'} />
+              {isSidebarExpanded && <span className="truncate">INVENTARIO</span>}
+            </button>
+          )}
 
-          <button
-            onClick={() => handleTabChange('history')}
-            className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
-              activeTab === 'history'
-                ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
-            }`}
-            id="tab-history"
-            title="HISTORIAL DE DESPACHOS"
-          >
-            <History size={16} className={activeTab === 'history' ? 'text-white' : 'text-app-text/50'} />
-            {isSidebarExpanded && <span className="truncate">HISTORIAL DE DESPACHOS</span>}
-          </button>
+          {hasPermission('packingListHistory') && (
+            <button
+              onClick={() => handleTabChange('history')}
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+                activeTab === 'history'
+                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
+                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+              id="tab-history"
+              title="HISTORIAL DE DESPACHOS"
+            >
+              <History size={16} className={activeTab === 'history' ? 'text-white' : 'text-app-text/50'} />
+              {isSidebarExpanded && <span className="truncate">HISTORIAL DE DESPACHOS</span>}
+            </button>
+          )}
+
+          {(hasPermission('manageUsers') || currentUser?.role === 'admin') && (
+            <button
+              onClick={() => handleTabChange('users')}
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+                activeTab === 'users'
+                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
+                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+              }`}
+              id="tab-users"
+              title="USUARIOS & ACCESOS"
+            >
+              <Users size={16} className={activeTab === 'users' ? 'text-white' : 'text-app-text/50'} />
+              {isSidebarExpanded && <span className="truncate">USUARIOS & ACCESOS</span>}
+            </button>
+          )}
         </nav>
 
         {/* Quick Connection Action for Local DemoFallback */}
@@ -921,29 +1055,41 @@ export default function App() {
           </div>
         )}
 
-        {/* Operator Selector Section - Embedded in Sidebar Footer */}
-        <div className={`${isSidebarExpanded ? 'p-4' : 'p-2 py-3 flex justify-center'} border-t border-app-border/45 bg-app-surface/20 shrink-0 transition-all`}>
+        {/* User Account / Operator Section - Embedded in Sidebar Footer */}
+        <div className={`${isSidebarExpanded ? 'p-3.5' : 'p-2 py-3 flex justify-center'} border-t border-app-border/45 bg-app-surface/20 shrink-0 transition-all`}>
           <div className={`flex items-center ${isSidebarExpanded ? 'gap-2.5' : 'justify-center'}`}>
             <div 
-              className="h-7 w-7 rounded bg-app-surface border border-app-border flex items-center justify-center text-app-text/70 shrink-0"
-              title={`Operario: ${currentOperator}`}
+              className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-xs cursor-pointer"
+              title={`Usuario activo: ${currentUser.name} (${currentUser.email})`}
+              onClick={() => setIsChangePasswordOpen(true)}
             >
-              <User size={13} />
+              {currentUser.name.charAt(0).toUpperCase()}
             </div>
             {isSidebarExpanded && (
               <div className="flex-1 min-w-0 animate-fadeIn">
-                <span className="block text-[8px] uppercase font-bold tracking-widest text-app-text/50">Operario Actual</span>
-                <select
-                  value={currentOperator}
-                  onChange={e => setCurrentOperator(e.target.value)}
-                  className="bg-transparent text-[11px] font-medium text-app-text focus:outline-hidden cursor-pointer w-full text-left truncate -ml-0.5 mt-0.5 border-none p-0 focus:ring-0"
-                  id="select-operator-user"
-                >
-                  <option value="Paul Almacén" className="bg-app-surface text-app-text">Paul (Almacén Central)</option>
-                  <option value="Administrador" className="bg-app-surface text-app-text">Administrador de Red</option>
-                  <option value="Operador Turno Mañana" className="bg-app-surface text-app-text">Operador Turno Mañana</option>
-                  <option value="Despachador Principal" className="bg-app-surface text-app-text">Despachador Principal</option>
-                </select>
+                <div className="flex items-center justify-between">
+                  <span className="block text-[11px] font-semibold text-app-text truncate max-w-[120px]">{currentUser.name}</span>
+                  <button
+                    type="button"
+                    onClick={logout}
+                    title="Cerrar Sesión"
+                    className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-500/10 transition-colors cursor-pointer"
+                  >
+                    <LogOut size={13} />
+                  </button>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[9px] uppercase font-bold px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                    {currentUser.role}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setIsChangePasswordOpen(true)}
+                    className="text-[9px] text-app-text/50 hover:text-app-text underline cursor-pointer"
+                  >
+                    Clave
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -987,6 +1133,7 @@ export default function App() {
                   {activeTab === 'catalogs' && "Catálogos"}
                   {activeTab === 'inventory' && "Inventario"}
                   {activeTab === 'history' && "Historial de Despachos"}
+                  {activeTab === 'users' && "Gestión de Usuarios y Accesos"}
                 </span>
                 {isTestMode && (
                   <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 uppercase tracking-widest animate-pulse">
@@ -1054,8 +1201,88 @@ export default function App() {
               <RefreshCw size={13} className={loading ? "animate-spin text-app-secondary" : ""} />
             </button>
             
-            <div className="text-right hidden sm:block font-mono text-[10px] text-app-text/50 border-l border-app-border pl-3">
+            <div className="text-right hidden xl:block font-mono text-[10px] text-app-text/50 border-l border-app-border pl-3">
               {new Date().toLocaleDateString('es-ES', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
+            </div>
+
+            {/* User Account Menu Dropdown */}
+            <div className="relative border-l border-app-border pl-1.5 sm:pl-2">
+              <button
+                type="button"
+                onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1 rounded-lg bg-app-surface border border-app-border hover:bg-app-bg transition-colors cursor-pointer text-left"
+              >
+                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-sky-500 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="hidden lg:block text-left">
+                  <div className="text-xs font-semibold text-app-text leading-tight truncate max-w-[110px]">
+                    {currentUser.name}
+                  </div>
+                  <div className="text-[9px] text-app-text/60 uppercase font-mono">
+                    {currentUser.role}
+                  </div>
+                </div>
+                <ChevronDown size={13} className="text-app-text/50 hidden sm:block" />
+              </button>
+
+              {isUserMenuOpen && (
+                <div 
+                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl py-2 z-50 text-xs animate-in fade-in slide-in-from-top-2 duration-150"
+                  onClick={() => setIsUserMenuOpen(false)}
+                >
+                  <div className="px-4 py-2.5 border-b border-slate-800">
+                    <div className="font-bold text-white truncate">{currentUser.name}</div>
+                    <div className="text-slate-400 font-mono text-[11px] truncate">{currentUser.email}</div>
+                    <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[10px] font-semibold uppercase">
+                      <ShieldCheck size={10} />
+                      {currentUser.role}
+                    </div>
+                  </div>
+
+                  <div className="py-1">
+                    {(hasPermission('manageUsers') || currentUser.role === 'admin') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleTabChange('users');
+                          setIsUserMenuOpen(false);
+                        }}
+                        className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors text-left cursor-pointer"
+                      >
+                        <Users size={14} className="text-indigo-400" />
+                        <span>Gestión de Usuarios</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsChangePasswordOpen(true);
+                        setIsUserMenuOpen(false);
+                      }}
+                      className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors text-left cursor-pointer"
+                    >
+                      <Key size={14} className="text-amber-400" />
+                      <span>Cambiar mi contraseña</span>
+                    </button>
+                  </div>
+
+                  <div className="pt-1 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        logout();
+                        setIsUserMenuOpen(false);
+                      }}
+                      className="w-full px-4 py-2 flex items-center gap-2.5 text-red-400 hover:bg-red-500/10 transition-colors text-left cursor-pointer font-medium"
+                    >
+                      <LogOut size={14} />
+                      <span>Cerrar Sesión</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -1319,6 +1546,12 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal 
+        isOpen={isChangePasswordOpen} 
+        onClose={() => setIsChangePasswordOpen(false)} 
+      />
     </div>
   );
 }

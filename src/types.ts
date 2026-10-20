@@ -1,3 +1,51 @@
+export type UserRole = 'admin' | 'almacen' | 'vendedor' | 'supervisor' | 'custom';
+
+export interface UserPermissions {
+  // 1. Packing List
+  packingListCreate: boolean;    // Crear nuevo packing list (rollos / cortes)
+  packingListHistory: boolean;   // Ver historial de despachos
+  packingListCancel: boolean;    // Anular / eliminar packing list
+  packingListPrint: boolean;     // Reimprimir / Descargar PDF y etiquetas
+  packingListExport: boolean;    // Exportar historial a Excel
+  
+  // 2. Inventario de Telas
+  inventoryView: boolean;        // Ver stock y consultar rollos
+  inventoryAdd: boolean;         // Registrar rollos nuevos manualmente
+  inventoryBulkImport: boolean;  // Carga masiva desde Excel
+  inventoryAdjust: boolean;      // Ajustar metrajes de rollos
+  inventoryDelete: boolean;      // Anular o eliminar rollos
+  
+  // 3. Notas de Venta / Pedidos
+  salesOrdersCreate: boolean;    // Emitir notas de venta
+  salesOrdersView: boolean;      // Ver lista de pedidos
+  salesOrdersPrint: boolean;     // Imprimir notas y formatos
+  
+  // 4. Catálogos y Maestros
+  manageArticles: boolean;       // Crear/editar telas y artículos
+  manageProviders: boolean;      // Crear/editar proveedores y reglas
+  manageClients: boolean;        // Crear/editar clientes y RUC/DNI
+  manageSellers: boolean;        // Crear/editar vendedores
+  
+  // 5. Configuración y Seguridad
+  manageUsers: boolean;          // Crear, editar y dar permisos a usuarios
+  systemConfig: boolean;         // Modos del sistema, correlativos
+  testModeAccess: boolean;       // Acceso al botón de "Modo Prueba"
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  salt: string;
+  role: UserRole;
+  status: 'active' | 'inactive';
+  permissions: UserPermissions;
+  createdAt: string;
+  updatedAt?: string;
+  lastLoginAt?: string;
+}
+
 export interface Provider {
   id: string;
   name: string;

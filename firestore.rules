@@ -331,5 +331,50 @@ service cloud.firestore {
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
       allow delete: if false;
     }
+
+    // 9. Users (User accounts with salted SHA-256 hashed passwords & RBAC permissions)
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isValidId(userId)
+        && incoming(request).name is string
+        && incoming(request).name.size() > 0
+        && incoming(request).name.size() <= 128
+        && incoming(request).email is string
+        && incoming(request).email.size() >= 3
+        && incoming(request).email.size() <= 128
+        && incoming(request).passwordHash is string
+        && incoming(request).passwordHash.size() > 0
+        && incoming(request).passwordHash.size() <= 256
+        && incoming(request).salt is string
+        && incoming(request).salt.size() > 0
+        && incoming(request).salt.size() <= 128
+        && incoming(request).role in ['admin', 'almacen', 'vendedor', 'supervisor', 'custom']
+        && incoming(request).status in ['active', 'inactive']
+        && incoming(request).permissions is map
+        && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100))
+        && (!('lastLoginAt' in incoming(request)) || (incoming(request).lastLoginAt is string && incoming(request).lastLoginAt.size() <= 100));
+      allow update: if isValidId(userId)
+        && incoming(request).name is string
+        && incoming(request).name.size() > 0
+        && incoming(request).name.size() <= 128
+        && incoming(request).email is string
+        && incoming(request).email.size() >= 3
+        && incoming(request).email.size() <= 128
+        && incoming(request).passwordHash is string
+        && incoming(request).passwordHash.size() > 0
+        && incoming(request).passwordHash.size() <= 256
+        && incoming(request).salt is string
+        && incoming(request).salt.size() > 0
+        && incoming(request).salt.size() <= 128
+        && incoming(request).role in ['admin', 'almacen', 'vendedor', 'supervisor', 'custom']
+        && incoming(request).status in ['active', 'inactive']
+        && incoming(request).permissions is map
+        && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
+        && isCreatedAtImmutable(request, resource)
+        && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100))
+        && (!('lastLoginAt' in incoming(request)) || (incoming(request).lastLoginAt is string && incoming(request).lastLoginAt.size() <= 100));
+      allow delete: if isValidId(userId);
+    }
   }
 }
