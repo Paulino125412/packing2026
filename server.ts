@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import crypto from "node:crypto";
 import { createServer as createViteServer } from "vite";
-import { initializeApp as initAdminApp, getApps as getAdminApps } from "firebase-admin/app";
+import { initializeApp as initAdminApp, getApps as getAdminApps, applicationDefault } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
 import firebaseConfig from "./firebase-applet-config.json";
@@ -179,11 +179,44 @@ function verifyServerLegacyPassword(password: string, salt: string, storedHash: 
   return false;
 }
 
+// Global error handlers to prevent unhandled gRPC or promise rejections from crashing the server
+process.on('unhandledRejection', (reason: any) => {
+  console.error('Unhandled Promise Rejection:', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err: any) => {
+  console.error('Uncaught Exception:', err?.message || err);
+});
+
+// Admin SDK readiness check (non-blocking for server startup if ADC is missing)
+let adminReady = false;
+(async () => {
+  try {
+    const defaultAppCreds = applicationDefault();
+    await defaultAppCreds.getAccessToken();
+    adminReady = true;
+    console.log('✓ Firebase Admin SDK credenciales verificadas correctamente.');
+  } catch (err: any) {
+    console.warn('⚠️ ADVERTENCIA: No se pudieron obtener las credenciales de Firebase Admin (ADC).');
+    console.warn('Detalle:', err?.message || err);
+    console.warn('Asegúrate de configurar GOOGLE_APPLICATION_CREDENTIALS o la service account del hosting.');
+    console.warn('Los endpoints protegidos de autenticación responderán 503 hasta que se configuren las credenciales.');
+    adminReady = false;
+  }
+})();
+
 // Lazy Account Migration Route: Bridges legacy password hashes to Firebase Auth securely
 const migrationRateLimitIpMap = new Map<string, { count: number; resetTime: number }>();
 const migrationRateLimitEmailMap = new Map<string, { count: number; resetTime: number }>();
 
 app.post("/api/auth/migrate-legacy", async (req, res) => {
+  if (!adminReady) {
+    return res.status(503).json({
+      success: false,
+      message: 'Servicio de autenticación no disponible temporalmente.'
+    });
+  }
+
   const { email, password } = req.body || {};
   if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
     return res.status(400).json({ success: false, message: 'Correo y contraseña requeridos.' });
@@ -247,15 +280,6 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
 
     // Must have stored passwordHash and salt
     if (!userDoc || !userDoc.passwordHash || !userDoc.salt) {
-      // If already in Firebase Auth, return 409 Conflict
-      try {
-        await adminAuth.getUserByEmail(cleanEmail);
-        return res.status(409).json({
-          success: false,
-          message: 'La cuenta ya ha sido migrada a Firebase Auth. Inicie sesión directamente con su correo y contraseña.'
-        });
-      } catch {}
-
       return res.status(401).json({ 
         success: false, 
         message: 'Credenciales inválidas o cuenta no registrada.' 
@@ -270,7 +294,7 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
       });
     }
 
-    // 3. Reject immediately if account already exists in Firebase Auth (409 Conflict)
+    // 3. Only emit 409 Conflict if legacy credentials were successfully verified AND account already exists in Firebase Auth
     try {
       await adminAuth.getUserByEmail(cleanEmail);
       return res.status(409).json({
@@ -306,7 +330,10 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
       }
     }
 
-    // 5. Create / merge Firestore user profile keyed by UID without passwordHash or salt
+    // 5. Determine mustChangePassword per requirement 5
+    const mustChangePasswordValue = userDoc.mustChangePassword === true || cleanPassword === 'admin123';
+
+    // 6. Create / merge Firestore user profile keyed by UID without passwordHash or salt
     const profileData: Record<string, any> = {
       id: targetUid,
       name: userDoc.name || 'Usuario',
@@ -314,7 +341,7 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
       role: userDoc.role || 'custom',
       status: userDoc.status || 'active',
       permissions: userDoc.permissions || {},
-      mustChangePassword: userDoc.mustChangePassword === true,
+      mustChangePassword: mustChangePasswordValue,
       createdAt: userDoc.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
