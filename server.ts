@@ -131,8 +131,9 @@ app.post("/api/sentry-tunnel", express.raw({ type: "*/*", limit: "200kb" }), asy
   }
 });
 
-// Global JSON parser limited to 100kb to protect against large payload DoS
-app.use(express.json({ limit: '100kb' }));
+// Global JSON parser limited to 10mb to support large payloads
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Standard health check route for container & proxy readiness
 app.get("/api/health", (req, res) => {
@@ -178,6 +179,7 @@ function verifyServerLegacyPassword(password: string, salt: string, storedHash: 
 
   return false;
 }
+
 
 // Global error handlers to prevent unhandled gRPC or promise rejections from crashing the server
 process.on('unhandledRejection', (reason: any) => {
@@ -260,9 +262,7 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
   }
 
   try {
-    const firestore = (firebaseConfig as any).firestoreDatabaseId 
-      ? getAdminFirestore((firebaseConfig as any).firestoreDatabaseId)
-      : getAdminFirestore();
+    const firestore = getAdminFirestore();
     const adminAuth = getAdminAuth();
 
     // 2. Search for legacy user in Firestore
