@@ -94,6 +94,70 @@ export default function App() {
     }
   }, [currentUser?.name]);
 
+  // 4. Restricción de horario laboral (6:00 AM a 8:00 PM) para usuarios no administradores
+  useEffect(() => {
+    if (!currentUser) return;
+    const isSuperAdmin = currentUser.email.trim().toLowerCase() === 'paulcalebfs123@gmail.com';
+    const isAdmin = currentUser.role === 'admin' || isSuperAdmin;
+    if (isAdmin) return;
+
+    const checkWorkingHours = () => {
+      const currentHour = new Date().getHours();
+      // Si la hora está fuera de 6:00 AM a 7:59:59 PM (hora < 6 o hora >= 20)
+      if (currentHour < 6 || currentHour >= 20) {
+        logout();
+        toast.warning('Tu jornada laboral ha concluido. El sistema para tu rol finaliza a las 8:00 PM.', {
+          title: 'Jornada Laboral Concluida',
+          duration: 10000
+        });
+      }
+    };
+
+    // Verificar de inmediato al tener sesión activa
+    checkWorkingHours();
+
+    // Monitorear cada 1 minuto (60,000 ms)
+    const intervalId = setInterval(checkWorkingHours, 60000);
+    return () => clearInterval(intervalId);
+  }, [currentUser, logout, toast]);
+
+  // 5. Cierre de sesión automático por inactividad (20 minutos continuos sin interacción)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutos
+    let timer: ReturnType<typeof setTimeout>;
+
+    const handleInactivityTimeout = () => {
+      logout();
+      toast.info('Tu sesión se ha cerrado por inactividad para proteger la seguridad del almacén.', {
+        title: 'Sesión Cerrada por Inactividad',
+        duration: 10000
+      });
+    };
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(handleInactivityTimeout, INACTIVITY_TIMEOUT_MS);
+    };
+
+    // Eventos de interacción del usuario
+    const events: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    events.forEach((evt) => {
+      window.addEventListener(evt, resetTimer, { passive: true });
+    });
+
+    // Iniciar temporizador
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      events.forEach((evt) => {
+        window.removeEventListener(evt, resetTimer);
+      });
+    };
+  }, [currentUser, logout, toast]);
+
   // Adjust active tab if user doesn't have permission for current tab
   useEffect(() => {
     if (!currentUser) return;

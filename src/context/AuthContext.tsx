@@ -238,6 +238,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Esta cuenta ha sido desactivada por el administrador. Contacta con soporte.' };
     }
 
+    // Restricción de horario laboral para no-admin (6:00 AM a 8:00 PM)
+    const isAdmin = foundUser.role === 'admin' || foundUser.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
+    if (!isAdmin) {
+      const currentHour = new Date().getHours();
+      if (currentHour < 6 || currentHour >= 20) {
+        return { 
+          success: false, 
+          message: 'Acceso denegado: El horario permitido para tu rol es de 6:00 AM a 8:00 PM. Fuera de este horario solo el Administrador tiene acceso.' 
+        };
+      }
+    }
+
     const isMatch = await verifyPassword(cleanPassword, foundUser.salt, foundUser.passwordHash);
 
     if (!isMatch) {
