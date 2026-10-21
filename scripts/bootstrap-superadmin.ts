@@ -1,12 +1,14 @@
 import crypto from 'node:crypto';
-import { initializeApp, getApps } from 'firebase-admin/app';
+import readline from 'node:readline';
+import { initializeApp, getApps, applicationDefault } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 if (!getApps().length) {
   initializeApp({
-    projectId: firebaseConfig.projectId
+    projectId: firebaseConfig.projectId,
+    credential: applicationDefault()
   });
 }
 
@@ -17,7 +19,7 @@ const firestore = (firebaseConfig as any).firestoreDatabaseId
 
 const SUPER_ADMIN_EMAIL = 'paulcalebfs123@gmail.com';
 
-function generateSecurePassword(length = 20): string {
+function generateSecurePassword(length = 22): string {
   const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()_+';
   let password = '';
   const randomBytes = crypto.randomBytes(length);
@@ -27,57 +29,119 @@ function generateSecurePassword(length = 20): string {
   return password;
 }
 
-async function main() {
-  console.log(`Iniciando aprovisionamiento seguro de SuperAdministrador: ${SUPER_ADMIN_EMAIL}...`);
+function askConfirmation(promptText: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
 
-  const generatedPassword = generateSecurePassword(22);
-  let userRecord;
-
-  try {
-    userRecord = await auth.getUserByEmail(SUPER_ADMIN_EMAIL);
-    console.log(`Usuario existente encontrado en Auth con UID: ${userRecord.uid}. Actualizando contraseña...`);
-    await auth.updateUser(userRecord.uid, {
-      password: generatedPassword,
-      displayName: 'Paul Administrador'
+  return new Promise((resolve) => {
+    rl.question(promptText, (answer) => {
+      rl.close();
+      resolve(answer.trim());
     });
+  });
+}
+
+const adminPermissions = {
+  inventoryView: true,
+  inventoryCreate: true,
+  inventoryEdit: true,
+  inventoryDelete: true,
+  inventoryAdjust: true,
+  packingListView: true,
+  packingListCreate: true,
+  packingListCancel: true,
+  manageClients: true,
+  manageArticles: true,
+  manageProviders: true,
+  manageSellers: true,
+  manageUsers: true,
+  salesOrdersView: true,
+  salesOrdersCreate: true
+};
+
+async function main() {
+  const isRotatePassword = process.argv.includes('--rotate-password');
+
+  let existingUser: any = null;
+  try {
+    existingUser = await auth.getUserByEmail(SUPER_ADMIN_EMAIL);
   } catch (err: any) {
-    if (err.code === 'auth/user-not-found') {
-      console.log(`Creando nueva cuenta en Firebase Auth...`);
-      userRecord = await auth.createUser({
-        email: SUPER_ADMIN_EMAIL,
-        password: generatedPassword,
-        displayName: 'Paul Administrador'
-      });
-    } else {
+    if (err.code !== 'auth/user-not-found') {
       throw err;
     }
   }
 
-  const uid = userRecord.uid;
+  // 1. Si la cuenta ya existe en Firebase Auth y NO se pasó --rotate-password
+  if (existingUser && !isRotatePassword) {
+    console.log('La cuenta ya existe; no se modificó nada. Usa --rotate-password para rotar la contraseña.');
+    process.exit(0);
+  }
 
-  // 1. Asignar Custom Claim { admin: true }
+  // 2. Si la cuenta ya existe y se pasó --rotate-password con confirmación "ROTAR"
+  if (existingUser && isRotatePassword) {
+    console.log(`\nADVERTENCIA: Se solicitó rotar la contraseña del superadministrador (${SUPER_ADMIN_EMAIL}).`);
+    const confirmation = await askConfirmation('Para confirmar, escribe exactamente la palabra ROTAR: ');
+
+    if (confirmation !== 'ROTAR') {
+      console.log(`Confirmación no coincide ("${confirmation}" !== "ROTAR"). Operación cancelada sin cambios.`);
+      process.exit(0);
+    }
+
+    const newPassword = generateSecurePassword(22);
+    console.log('Rotando contraseña en Firebase Auth...');
+    await auth.updateUser(existingUser.uid, {
+      password: newPassword
+    });
+
+    // Asegurar y confirmar claim admin: true
+    await auth.setCustomUserClaims(existingUser.uid, { admin: true });
+
+    // Actualizar perfil en Firestore dejando mustChangePassword: true
+    await firestore.collection('users').doc(existingUser.uid).set({
+      mustChangePassword: true,
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+
+    // Confirmar que el claim admin: true sigue puesto
+    const verifiedUser = await auth.getUser(existingUser.uid);
+    if (verifiedUser.customClaims?.admin !== true) {
+      throw new Error('Falló la verificación del custom claim admin tras la rotación.');
+    }
+
+    console.log('\n=============================================================');
+    console.log('         CONTRASEÑA ROTADA EXITOSAMENTE                      ');
+    console.log('=============================================================');
+    console.log(` Correo:              ${SUPER_ADMIN_EMAIL}`);
+    console.log(` UID:                 ${existingUser.uid}`);
+    console.log(` Role:                admin (Custom Claim: admin=true)`);
+    console.log(` Contraseña generada: ${newPassword}`);
+    console.log('-------------------------------------------------------------');
+    console.log('  IMPORTANTE: Guarda esta contraseña en un lugar seguro.');
+    console.log(' Solo se muestra UNA VEZ por motivos estrictos de seguridad.');
+    console.log(' Al iniciar sesión, se exigirá cambiarla de inmediato.');
+    console.log('=============================================================\n');
+    return;
+  }
+
+  // 3. Si la cuenta no existe en Firebase Auth, crearla
+  console.log(`Iniciando creación de cuenta SuperAdministrador: ${SUPER_ADMIN_EMAIL}...`);
+  const generatedPassword = generateSecurePassword(22);
+
+  const newUser = await auth.createUser({
+    email: SUPER_ADMIN_EMAIL,
+    password: generatedPassword,
+    displayName: 'Paul Administrador'
+  });
+
+  const uid = newUser.uid;
+
+  // Asignar Custom Claim { admin: true }
   console.log(`Asignando Custom Claim { admin: true } a UID: ${uid}...`);
   await auth.setCustomUserClaims(uid, { admin: true });
 
-  // 2. Crear / actualizar documento en Firestore users/{uid}
-  const adminPermissions = {
-    inventoryView: true,
-    inventoryCreate: true,
-    inventoryEdit: true,
-    inventoryDelete: true,
-    inventoryAdjust: true,
-    packingListView: true,
-    packingListCreate: true,
-    packingListCancel: true,
-    manageClients: true,
-    manageArticles: true,
-    manageProviders: true,
-    manageSellers: true,
-    manageUsers: true,
-    salesOrdersView: true,
-    salesOrdersCreate: true
-  };
-
+  // Crear documento en Firestore users/{uid}
   const profileData = {
     id: uid,
     name: 'Paul Administrador',
@@ -91,9 +155,9 @@ async function main() {
   };
 
   await firestore.collection('users').doc(uid).set(profileData, { merge: true });
-  console.log(`✓ Perfil de SuperAdministrador en Firestore creado/actualizado en users/${uid}.`);
+  console.log(`✓ Perfil de SuperAdministrador en Firestore creado en users/${uid}.`);
 
-  // 3. Limpiar cualquier documento legado previo que tenga el mismo email pero ID distinto
+  // Limpiar cualquier documento legado previo que tenga el mismo email pero ID distinto
   const legacySnaps = await firestore.collection('users').where('email', '==', SUPER_ADMIN_EMAIL).get();
   for (const doc of legacySnaps.docs) {
     if (doc.id !== uid) {
@@ -102,7 +166,7 @@ async function main() {
     }
   }
 
-  // 4. Verificar custom claims
+  // Verificar custom claim
   const verifiedUser = await auth.getUser(uid);
   if (verifiedUser.customClaims?.admin !== true) {
     throw new Error('Falló la verificación del custom claim admin.');

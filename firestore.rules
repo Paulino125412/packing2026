@@ -10,10 +10,14 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    function isUserActive() {
-      return isAuthenticated() && 
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        getUserData().status == 'active';
+    // Horario laboral para usuarios no administradores: 6:00 AM a 8:00 PM (hora de Lima, America/Lima).
+    // Lima (Perú) se encuentra en zona horaria UTC-5 todo el año (no tiene horario de verano / Daylight Saving Time).
+    // La hora de Lima se obtiene con offset UTC-5 restando 5 horas (5 * 3,600 * 1,000 = 18,000,000 ms).
+    // Derivamos el Timestamp en hora de Lima con timestamp.value(request.time.toMillis() - 18000000).
+    // La hora local se extrae con .hours(): el acceso se permite exclusivamente entre 06:00 y 19:59 (hora >= 6 && hora < 20).
+    function withinWorkingHours() {
+      return timestamp.value(request.time.toMillis() - 18000000).hours() >= 6 &&
+             timestamp.value(request.time.toMillis() - 18000000).hours() < 20;
     }
 
     function getUserRole() {
@@ -23,8 +27,17 @@ service cloud.firestore {
     function isAdmin() {
       return isAuthenticated() && (
         request.auth.token.admin == true ||
-        (isUserActive() && getUserRole() == 'admin')
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         getUserData().status == 'active' &&
+         getUserRole() == 'admin')
       );
+    }
+
+    function isUserActive() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getUserData().status == 'active' &&
+        (isAdmin() || withinWorkingHours());
     }
 
     function hasPermission(permKey) {
@@ -387,7 +400,7 @@ service cloud.firestore {
         && isValidId(counterId)
         && (incoming(request).currentValue is int || incoming(request).currentValue is float || incoming(request).currentValue is number)
         && incoming(request).currentValue >= resource.data.currentValue
-        && incoming(request).currentValue <= resource.data.currentValue + 1
+        && (isAdmin() || incoming(request).currentValue <= resource.data.currentValue + 1)
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
       allow delete: if false;
     }

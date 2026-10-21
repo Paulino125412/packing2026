@@ -188,10 +188,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, message: 'Esta cuenta ha sido desactivada por el administrador.' };
       }
 
-      // Validar restricción de horario (6:00 AM a 8:00 PM) para no-admin
+      // Validar restricción de horario (6:00 AM a 8:00 PM hora de Lima, UTC-5) para no-admin
       const isAdmin = profileData?.role === 'admin';
       if (!isAdmin) {
-        const currentHour = new Date().getHours();
+        // Hora de Lima (UTC-5, constante sin horario de verano)
+        const limaDate = new Date(Date.now() - 5 * 60 * 60 * 1000);
+        const currentHour = limaDate.getUTCHours();
         if (currentHour < 6 || currentHour >= 20) {
           await signOut(auth);
           return { 

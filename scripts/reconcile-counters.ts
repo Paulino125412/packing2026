@@ -1,10 +1,11 @@
-import { initializeApp, getApps } from 'firebase-admin/app';
+import { initializeApp, getApps, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 if (!getApps().length) {
   initializeApp({
-    projectId: firebaseConfig.projectId
+    projectId: firebaseConfig.projectId,
+    credential: applicationDefault()
   });
 }
 
@@ -16,71 +17,73 @@ async function main() {
   const isDryRun = process.argv.includes('--dry-run');
   console.log(`\n--- RECONCILIACIÓN DE CONTADORES ATÓMICOS (${isDryRun ? 'MODO DRY-RUN' : 'MODO EN VIVO'}) ---`);
 
-  // 1. Reconciliar contador packingListNo
   let maxPlNum = 0;
+  let validDocumentsCount = 0;
+  let ignoredDocumentsCount = 0;
+
+  // 1. Consultar todos los documentos de packinglists
   const plSnap = await firestore.collection('packinglists').get();
   plSnap.forEach(doc => {
     const data = doc.data();
-    const plNo = data.packingListNo || data.orderNo || '';
-    const match = plNo.match(/(\d+)/);
+    const plNo = typeof data.packingListNo === 'string' ? data.packingListNo.trim() : '';
+
+    // Formato estricto: PL-#### (ej. PL-0001, PL-0005). Se ignoran ROLLO-DIRECT-*, OV-PRUEBA-*, etc.
+    const match = plNo.match(/^PL-(\d+)$/);
     if (match) {
       const num = parseInt(match[1], 10);
-      if (num > maxPlNum) maxPlNum = num;
+      if (!isNaN(num)) {
+        validDocumentsCount++;
+        if (num > maxPlNum) {
+          maxPlNum = num;
+        }
+      } else {
+        ignoredDocumentsCount++;
+      }
+    } else {
+      ignoredDocumentsCount++;
     }
   });
 
+  // 2. Consultar valor actual en colección counters/packingListNo
   const plCounterRef = firestore.collection('counters').doc('packingListNo');
   const plCounterSnap = await plCounterRef.get();
-  const plCurrentValue = plCounterSnap.exists ? (plCounterSnap.data()?.currentValue || 0) : 0;
+  const plCurrentValueBefore = plCounterSnap.exists ? (Number(plCounterSnap.data()?.currentValue) || 0) : 0;
+  let plCurrentValueAfter = plCurrentValueBefore;
 
-  console.log(`[PackingListNo] Máximo correlativo en packinglists: ${maxPlNum} | Valor actual en contador: ${plCurrentValue}`);
-  if (maxPlNum > plCurrentValue) {
+  console.log(`\nDocumentos analizados en 'packinglists': ${plSnap.size}`);
+  console.log(`- Documentos con correlativo válido PL-####: ${validDocumentsCount}`);
+  console.log(`- Documentos ignorados por formato: ${ignoredDocumentsCount}`);
+  console.log(`- Máximo correlativo encontrado: ${maxPlNum}`);
+  console.log(`- Valor del contador antes: ${plCurrentValueBefore}`);
+
+  // 3. Solo subir el contador si el máximo existente es estrictamente mayor; nunca bajarlo
+  if (maxPlNum > plCurrentValueBefore) {
     if (isDryRun) {
-      console.log(`[DRY-RUN] Se actualizaría el contador 'packingListNo' de ${plCurrentValue} a ${maxPlNum}.`);
+      plCurrentValueAfter = maxPlNum;
+      console.log(`[DRY-RUN] Se actualizaría el contador 'packingListNo' de ${plCurrentValueBefore} a ${maxPlNum}.`);
     } else {
       await plCounterRef.set({
         currentValue: maxPlNum,
         updatedAt: new Date().toISOString()
       }, { merge: true });
-      console.log(`[ACTUALIZADO] Contador 'packingListNo' establecido en ${maxPlNum}.`);
+      plCurrentValueAfter = maxPlNum;
+      console.log(`[ACTUALIZADO] Contador 'packingListNo' actualizado de ${plCurrentValueBefore} a ${maxPlNum}.`);
     }
   } else {
-    console.log(`[OK] El contador 'packingListNo' está al día o por delante.`);
+    console.log(`[OK] El contador 'packingListNo' está al día o por delante (${plCurrentValueBefore} >= ${maxPlNum}). No se requieren cambios.`);
   }
 
-  // 2. Reconciliar contador salesOrderNo (si aplica)
-  let maxSoNum = 0;
-  const soSnap = await firestore.collection('sales_orders').get();
-  soSnap.forEach(doc => {
-    const data = doc.data();
-    const soNo = data.orderNo || '';
-    const match = soNo.match(/(\d+)/);
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (num > maxSoNum) maxSoNum = num;
-    }
-  });
-
-  const soCounterRef = firestore.collection('counters').doc('salesOrderNo');
-  const soCounterSnap = await soCounterRef.get();
-  const soCurrentValue = soCounterSnap.exists ? (soCounterSnap.data()?.currentValue || 0) : 0;
-
-  console.log(`[SalesOrderNo] Máximo correlativo en sales_orders: ${maxSoNum} | Valor actual en contador: ${soCurrentValue}`);
-  if (maxSoNum > soCurrentValue) {
-    if (isDryRun) {
-      console.log(`[DRY-RUN] Se actualizaría el contador 'salesOrderNo' de ${soCurrentValue} a ${maxSoNum}.`);
-    } else {
-      await soCounterRef.set({
-        currentValue: maxSoNum,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-      console.log(`[ACTUALIZADO] Contador 'salesOrderNo' establecido en ${maxSoNum}.`);
-    }
-  } else {
-    console.log(`[OK] El contador 'salesOrderNo' está al día o por delante.`);
-  }
-
-  console.log('--- RECONCILIACIÓN FINALIZADA ---\n');
+  // 4. Resumen final requerido
+  console.log('\n=============================================================');
+  console.log('             RESUMEN DE RECONCILIACIÓN DE CONTADORES        ');
+  console.log('=============================================================');
+  console.log(` Contador:                   packingListNo`);
+  console.log(` Máximo encontrado:          ${maxPlNum}`);
+  console.log(` Valor del contador antes:   ${plCurrentValueBefore}`);
+  console.log(` Valor del contador después: ${plCurrentValueAfter}${isDryRun && maxPlNum > plCurrentValueBefore ? ' (Simulado)' : ''}`);
+  console.log(` Documentos ignorados:       ${ignoredDocumentsCount}`);
+  console.log(` Modo de ejecución:          ${isDryRun ? 'DRY-RUN (Sin escrituras)' : 'EN VIVO'}`);
+  console.log('=============================================================\n');
 }
 
 main().catch(err => {

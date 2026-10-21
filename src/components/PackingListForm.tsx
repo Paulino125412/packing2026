@@ -1572,11 +1572,17 @@ export default function PackingListForm({
           if (counterSnap.exists()) {
             const counterData = counterSnap.data();
             const currentVal = Number(counterData?.currentValue) || 0;
+            if (maxExistingNum >= currentVal) {
+              throw new Error("El contador está desfasado, avisa al administrador");
+            }
             nextValue = currentVal + 1;
           } else {
-            // Si el documento counters/packingListNo no existe en Firestore (ej. primer uso o documento borrado),
-            // se inicializa automáticamente tomando como base el correlativo más alto existente en la base de datos + 1
-            nextValue = maxExistingNum + 1;
+            // Si el documento counters/packingListNo no existe en Firestore,
+            // verificar si ya existen packing lists previos
+            if (maxExistingNum > 0) {
+              throw new Error("El contador está desfasado, avisa al administrador");
+            }
+            nextValue = 1;
           }
 
           const assignedPackingListNo = `PL-${String(nextValue).padStart(4, '0')}`;
@@ -1671,15 +1677,23 @@ export default function PackingListForm({
       resetFormState();
     } catch (err: any) {
       console.error(err);
+      const isDesfasado = err?.message?.includes("contador está desfasado") || err?.message?.includes("El contador está desfasado");
       const diag = analyzeSystemError(err, { action: 'guardar el Packing List', entity: 'packing_lists' });
       setError({
-        title: diag.title,
+        title: isDesfasado ? 'Contador Desfasado' : diag.title,
         message: err?.message || diag.message,
-        rootCause: diag.rootCause,
-        solution: diag.solution,
+        rootCause: isDesfasado ? 'El contador atómico de correlativos está desfasado con respecto a los packing lists registrados.' : diag.rootCause,
+        solution: isDesfasado ? 'Avisa al administrador del sistema para que sincronice los contadores atómicos.' : diag.solution,
         technicalDetails: diag.technicalDetails
       });
-      toast.diagnose(err, { action: 'guardar el Packing List', entity: 'packing_lists' });
+      if (isDesfasado) {
+        toast.error(err?.message || "El contador está desfasado, avisa al administrador", {
+          title: 'Contador Desfasado',
+          solution: 'Avisa al administrador para sincronizar los contadores atómicos.'
+        });
+      } else {
+        toast.diagnose(err, { action: 'guardar el Packing List', entity: 'packing_lists' });
+      }
     } finally {
       setLoading(false);
       isSubmittingRef.current = false;

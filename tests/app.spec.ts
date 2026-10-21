@@ -79,8 +79,8 @@ test.describe('Seguridad e Infraestructura del Sistema', () => {
     expect(body.error).toContain('Acceso no autorizado');
   });
 
-  // b) Un Bearer token inválido o falso da 401 Unauthorized
-  test('GET /api/sunat/:number con Bearer token inválido responde 401 Unauthorized', async ({ request }) => {
+  // b) Un Bearer token inválido devuelve 401 con cuerpo genérico (sin "firebase" ni URLs)
+  test('GET /api/sunat/:number con Bearer token inválido responde 401 con cuerpo genérico (sin firebase ni URLs)', async ({ request }) => {
     const response = await request.get('/api/sunat/20100070970', {
       headers: {
         'Authorization': 'Bearer fake-invalid-jwt-token-12345'
@@ -90,6 +90,33 @@ test.describe('Seguridad e Infraestructura del Sistema', () => {
     const body = await response.json();
     expect(body.success).toBe(false);
     expect(body.error).toContain('Token de autenticación inválido');
+
+    const serialized = JSON.stringify(body).toLowerCase();
+    expect(serialized).not.toContain('firebase');
+    expect(serialized).not.toContain('http://');
+    expect(serialized).not.toContain('https://');
+    expect(serialized).not.toContain('stack');
+  });
+
+  // b2) Sin credenciales o con credenciales activas, un Bearer con forma de JWT devuelve 401 o 503 sin filtrar detalles internos
+  test('GET /api/sunat/:number con Bearer con forma de JWT responde 401 o 503 sin filtrar detalles internos', async ({ request }) => {
+    const fakeJwt = 'eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.invalid_signature_block';
+    const response = await request.get('/api/sunat/20100070970', {
+      headers: {
+        'Authorization': `Bearer ${fakeJwt}`
+      }
+    });
+
+    // Con credenciales responde 401 (token no verificado); sin credenciales responde 503 (ensureAdminReady)
+    expect([401, 503]).toContain(response.status());
+    const body = await response.json();
+    expect(body.success).toBe(false);
+
+    const serialized = JSON.stringify(body).toLowerCase();
+    const forbiddenTerms = ['stack', 'google', 'gax', 'credential', 'firebase', 'http://', 'https://'];
+    for (const term of forbiddenTerms) {
+      expect(serialized).not.toContain(term);
+    }
   });
 
   // c) Rotar X-Forwarded-For NO evita el rate limit (Express trust proxy usa la IP de conexión real)
@@ -155,33 +182,44 @@ test.describe('Seguridad e Infraestructura del Sistema', () => {
     const response = await request.post('/api/auth/migrate-legacy', {
       data: { email: 'nonexistent_user_test@example.com', password: 'random_password_xyz' }
     });
-    expect([401, 500]).toContain(response.status());
+    // Acepta 401 o 503 (estado de servicio no disponible)
+    expect([401, 503]).toContain(response.status());
     const body = await response.json();
     expect(body.success).toBe(false);
-    expect(body.message).not.toContain('stack');
-    expect(body.message).not.toContain('PERMISSION_DENIED');
-    expect(body.message).not.toContain('auth/');
+
+    const serializedBody = JSON.stringify(body).toLowerCase();
+    const forbidden = ['stack', 'google', 'gax', 'credential', 'firebase'];
+    for (const term of forbidden) {
+      expect(serializedBody).not.toContain(term);
+    }
   });
 
   // g) POST /api/auth/migrate-legacy rate limit por correo (máximo 5 intentos por minuto)
   test('POST /api/auth/migrate-legacy aplica rate limit estricto por correo (responde 429 tras ráfaga)', async ({ request }) => {
     const testTargetEmail = 'ratelimit_probe@example.com';
-    let reached429 = false;
 
-    for (let i = 1; i <= 8; i++) {
+    // Realizar 6 intentos: los primeros 5 pasan (aunque den 401/503), el sexto debe dar 429
+    for (let i = 1; i <= 6; i++) {
       const response = await request.post('/api/auth/migrate-legacy', {
         data: { email: testTargetEmail, password: `badpass_${i}` }
       });
 
-      if (response.status() === 429) {
-        reached429 = true;
+      if (i === 6) {
+        expect(response.status()).toBe(429);
         const body = await response.json();
         expect(body.success).toBe(false);
         expect(body.message).toContain('Demasiados intentos de verificación');
-        break;
       }
     }
+  });
 
-    expect(reached429).toBe(true);
+  // h) POST /api/auth/migrate-legacy con payload de 2 MB responde 413 Payload Too Large
+  test('POST /api/auth/migrate-legacy con payload de 2 MB responde 413 Payload Too Large', async ({ request }) => {
+    const largePayload = 'a'.repeat(2 * 1024 * 1024); // 2 MB string
+    const response = await request.post('/api/auth/migrate-legacy', {
+      data: { email: 'test@example.com', password: 'pass', padding: largePayload },
+      headers: { 'Content-Type': 'application/json' }
+    });
+    expect(response.status()).toBe(413);
   });
 });

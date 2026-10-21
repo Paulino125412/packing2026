@@ -16,7 +16,8 @@ app.set('trust proxy', 1);
 // Initialize Firebase Admin SDK for server-side token verification
 if (!getAdminApps().length) {
   initAdminApp({
-    projectId: firebaseConfig.projectId
+    projectId: firebaseConfig.projectId,
+    credential: applicationDefault()
   });
 }
 
@@ -131,9 +132,19 @@ app.post("/api/sentry-tunnel", express.raw({ type: "*/*", limit: "200kb" }), asy
   }
 });
 
-// Global JSON parser limited to 10mb to support large payloads
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
+// Global JSON parser limited to 100kb to protect against large payload DoS
+app.use(express.json({ limit: '100kb' }));
+
+// Explicit JSON body-parser error handler for 413 Payload Too Large and 400 Bad Request
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err && (err.type === 'entity.too.large' || err.status === 413 || err.statusCode === 413)) {
+    return res.status(413).json({ error: 'Payload Too Large', message: 'El cuerpo de la solicitud excede el límite permitido (100kb).' });
+  }
+  if (err && (err.type === 'entity.parse.failed' || err.status === 400 || err.statusCode === 400)) {
+    return res.status(400).json({ error: 'Bad Request', message: 'JSON malformado en la solicitud.' });
+  }
+  next(err);
+});
 
 // Standard health check route for container & proxy readiness
 app.get("/api/health", (req, res) => {
@@ -187,38 +198,76 @@ process.on('unhandledRejection', (reason: any) => {
 });
 
 process.on('uncaughtException', (err: any) => {
-  console.error('Uncaught Exception:', err?.message || err);
+  const msg = String(err?.message || err || '');
+  console.error('Uncaught Exception:', msg, err?.stack || '');
+
+  if (
+    msg.includes('Could not load the default credentials') ||
+    msg.includes('google-gax') ||
+    msg.includes('grpc')
+  ) {
+    // Solo registrar y seguir vivo ante errores transitorios de credenciales/transporte de Google
+    return;
+  }
+
+  // Para cualquier otra excepción, terminar para reinicio limpio del hosting
+  process.exit(1);
 });
 
-// Admin SDK readiness check (non-blocking for server startup if ADC is missing)
-let adminReady = false;
-(async () => {
+// Admin SDK readiness check with dynamic retry & 30s cache
+let adminReadyCache = false;
+let lastAdminCheckTime = 0;
+const ADMIN_CHECK_COOLDOWN_MS = 30 * 1000; // 30 seconds
+
+async function ensureAdminReady(): Promise<boolean> {
+  // 1. Si ya hubo un éxito, devuelve true desde caché
+  if (adminReadyCache) {
+    return true;
+  }
+
+  const now = Date.now();
+  // 2. Si el último intento falló hace menos de 30 segundos, devuelve false sin reintentar
+  if (lastAdminCheckTime > 0 && (now - lastAdminCheckTime) < ADMIN_CHECK_COOLDOWN_MS) {
+    return false;
+  }
+
+  // 3. Si pasaron más de 30 segundos (o es el primer intento), vuelve a verificar con applicationDefault().getAccessToken()
+  lastAdminCheckTime = now;
   try {
     const defaultAppCreds = applicationDefault();
     await defaultAppCreds.getAccessToken();
-    adminReady = true;
+    adminReadyCache = true;
     console.log('✓ Firebase Admin SDK credenciales verificadas correctamente.');
+    return true;
   } catch (err: any) {
     console.warn('⚠️ ADVERTENCIA: No se pudieron obtener las credenciales de Firebase Admin (ADC).');
     console.warn('Detalle:', err?.message || err);
     console.warn('Asegúrate de configurar GOOGLE_APPLICATION_CREDENTIALS o la service account del hosting.');
     console.warn('Los endpoints protegidos de autenticación responderán 503 hasta que se configuren las credenciales.');
-    adminReady = false;
+    adminReadyCache = false;
+    return false;
   }
-})();
+}
+
+// Verificación inicial no bloqueante al arrancar el servidor
+ensureAdminReady().catch((err) => {
+  console.warn('Error en verificación inicial de credenciales:', err?.message || err);
+});
 
 // Lazy Account Migration Route: Bridges legacy password hashes to Firebase Auth securely
 const migrationRateLimitIpMap = new Map<string, { count: number; resetTime: number }>();
 const migrationRateLimitEmailMap = new Map<string, { count: number; resetTime: number }>();
 
-app.post("/api/auth/migrate-legacy", async (req, res) => {
-  if (!adminReady) {
-    return res.status(503).json({
-      success: false,
-      message: 'Servicio de autenticación no disponible temporalmente.'
-    });
-  }
+// Helper to get Admin Firestore instance using named firestoreDatabaseId if configured
+function getDb() {
+  // Apunta a la base de datos con nombre de la app (firestoreDatabaseId) en lugar de (default)
+  return (firebaseConfig as any).firestoreDatabaseId 
+    ? getAdminFirestore((firebaseConfig as any).firestoreDatabaseId) 
+    : getAdminFirestore();
+}
 
+app.post("/api/auth/migrate-legacy", async (req, res) => {
+  // (a) Validar body
   const { email, password } = req.body || {};
   if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
     return res.status(400).json({ success: false, message: 'Correo y contraseña requeridos.' });
@@ -227,7 +276,7 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
   const cleanEmail = email.trim().toLowerCase();
   const cleanPassword = password.trim();
 
-  // 1. Dual Rate Limiting (by real client IP: max 10/min, and by target email: max 5/min)
+  // (b) Rate limit por IP y por correo
   const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
 
@@ -261,8 +310,18 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
     }
   }
 
+  // (c) Chequeo de ensureAdminReady (503 genérico)
+  const isReady = await ensureAdminReady();
+  if (!isReady) {
+    return res.status(503).json({
+      success: false,
+      message: 'Servicio de autenticación no disponible temporalmente.'
+    });
+  }
+
+  // (d) Acceso al Admin SDK
   try {
-    const firestore = getAdminFirestore();
+    const firestore = getDb();
     const adminAuth = getAdminAuth();
 
     // 2. Search for legacy user in Firestore
@@ -360,6 +419,12 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
     return res.json({ success: true, migrated: true });
   } catch (err: any) {
     console.error('Error in /api/auth/migrate-legacy:', err);
+    if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED') || err?.message?.includes('insufficient permissions')) {
+      return res.status(503).json({
+        success: false,
+        message: 'Servicio de autenticación no disponible temporalmente.'
+      });
+    }
     return res.status(500).json({ 
       success: false, 
       message: 'Error del servidor durante la migración de cuenta.' 
@@ -869,6 +934,16 @@ const SUNAT_RATE_LIMIT_MAX = 30; // 30 requests / minute
 
 // Middleware to verify Firebase ID token using firebase-admin
 async function requireFirebaseAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  // 1. Chequeo de disponibilidad de Firebase Admin
+  const isReady = await ensureAdminReady();
+  if (!isReady) {
+    return res.status(503).json({
+      success: false,
+      error: 'Servicio de autenticación no disponible temporalmente.'
+    });
+  }
+
+  // 2. Extraer y validar cabecera Authorization Bearer
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({
@@ -885,14 +960,70 @@ async function requireFirebaseAuth(req: express.Request, res: express.Response, 
     });
   }
 
+  // 3. Verificar ID token con checkRevoked = true para rechazar tokens revocados
+  let decodedToken;
   try {
-    const decodedToken = await getAdminAuth().verifyIdToken(idToken);
-    (req as any).user = decodedToken;
-    next();
+    decodedToken = await getAdminAuth().verifyIdToken(idToken, true);
   } catch (err: any) {
+    console.error('Error verificando token de Firebase:', err?.message || err);
     return res.status(401).json({
       success: false,
-      error: `Token de autenticación inválido o vencido (${err?.message || 'Unauthorized'}).`
+      error: 'Token de autenticación inválido o vencido.'
+    });
+  }
+
+  // 4. Consultar con el Admin SDK que users/{uid} exista y tenga status === 'active'
+  try {
+    const firestore = getDb();
+    const userDocSnap = await firestore.collection('users').doc(decodedToken.uid).get();
+
+    if (!userDocSnap.exists) {
+      return res.status(403).json({
+        success: false,
+        error: 'Acceso denegado: Usuario no registrado o sin permisos.'
+      });
+    }
+
+    const userData = userDocSnap.data();
+    if (userData?.status !== 'active') {
+      return res.status(403).json({
+        success: false,
+        error: 'Acceso denegado: Cuenta de usuario inactiva.'
+      });
+    }
+
+    // 5. Restricción de horario laboral (06:00 a 19:59 America/Lima, UTC-5) para usuarios no administradores
+    const isUserAdmin = decodedToken?.admin === true || userData?.role === 'admin';
+    if (!isUserAdmin) {
+      // Hora actual en Lima (America/Lima, UTC-5 constante sin horario de verano)
+      const limaDate = new Date(Date.now() - 5 * 60 * 60 * 1000);
+      const limaHour = limaDate.getUTCHours();
+
+      if (limaHour < 6 || limaHour >= 20) {
+        return res.status(403).json({
+          success: false,
+          error: 'Acceso fuera del horario permitido.',
+          message: 'Acceso fuera del horario permitido.'
+        });
+      }
+    }
+
+    (req as any).user = {
+      ...decodedToken,
+      profile: userData
+    };
+    next();
+  } catch (err: any) {
+    console.error('Error consultando perfil de usuario en Firestore:', err?.message || err);
+    if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED') || err?.message?.includes('insufficient permissions')) {
+      return res.status(503).json({
+        success: false,
+        error: 'Servicio de autenticación no disponible temporalmente.'
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      error: 'Error interno verificando estado de usuario.'
     });
   }
 }

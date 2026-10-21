@@ -101,7 +101,9 @@ export default function App() {
     if (!currentUser || isAdmin) return;
 
     const checkWorkingHours = () => {
-      const currentHour = new Date().getHours();
+      // Hora de Lima (UTC-5, constante sin horario de verano)
+      const limaDate = new Date(Date.now() - 5 * 60 * 60 * 1000);
+      const currentHour = limaDate.getUTCHours();
       // Si la hora está fuera de 6:00 AM a 7:59:59 PM (hora < 6 o hora >= 20)
       if (currentHour < 6 || currentHour >= 20) {
         logout();
