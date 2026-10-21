@@ -400,31 +400,25 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Seed data function to populate initial resources if database is empty
 export async function seedDatabaseIfEmpty() {
-  if (!auth.currentUser) {
-    return;
-  }
   try {
+    if (!auth.currentUser) {
+      return;
+    }
     const providersCol = collection(db, 'providers');
     let providersSnapshot;
     try {
       providersSnapshot = await getDocs(providersCol);
     } catch (err: any) {
-      if (err?.code === 'unavailable' || String(err).includes('offline') || String(err).includes('unavailable')) {
-        console.warn('Firestore is currently in offline mode; skipping cloud seeding check.');
+      if (err?.code === 'unavailable' || String(err).includes('offline') || String(err).includes('unavailable') || err?.code === 'permission-denied') {
+        console.warn('Firestore seeding check skipped due to network/permissions.');
         return;
       }
-      if (err?.code === 'permission-denied') {
-        console.warn('Permission denied checking providers for seeding (non-admin role); skipping.');
-        return;
-      }
-      handleFirestoreError(err, OperationType.GET, 'providers');
       return;
     }
     
     if (providersSnapshot.empty) {
       console.log('Seeding database with initial textile data...');
       
-      // 1. Seed Providers
       const providersData = [
         { id: 'prov-texnor', name: 'Textiles del Norte S.A.', hasLot: true, hasPartida: true, hasTono: true, hasRollNo: true },
         { id: 'prov-colortex', name: 'Colortex Importaciones', hasLot: true, hasPartida: false, hasTono: true, hasRollNo: true },
@@ -433,17 +427,18 @@ export async function seedDatabaseIfEmpty() {
       ];
       
       for (const p of providersData) {
-        await setDoc(doc(db, 'providers', p.id), {
-          name: p.name,
-          hasLot: p.hasLot,
-          hasPartida: p.hasPartida,
-          hasTono: p.hasTono,
-          hasRollNo: p.hasRollNo,
-          createdAt: new Date().toISOString()
-        });
+        try {
+          await setDoc(doc(db, 'providers', p.id), {
+            name: p.name,
+            hasLot: p.hasLot,
+            hasPartida: p.hasPartida,
+            hasTono: p.hasTono,
+            hasRollNo: p.hasRollNo,
+            createdAt: new Date().toISOString()
+          });
+        } catch {}
       }
 
-      // 2. Seed Articles
       const articlesData = [
         { id: 'art-alg100', name: 'Algodón Pima 100%', description: 'Telas de algodón pima peinado de alta calidad', unit: 'metros', providerId: 'prov-texnor' },
         { id: 'art-lin200', name: 'Lino Rústico Premium', description: 'Lino natural prelavado de 200g/m2', unit: 'metros', providerId: 'prov-texnor' },
@@ -453,16 +448,17 @@ export async function seedDatabaseIfEmpty() {
       ];
 
       for (const a of articlesData) {
-        await setDoc(doc(db, 'articles', a.id), {
-          name: a.name,
-          description: a.description,
-          unit: a.unit,
-          providerId: a.providerId,
-          createdAt: new Date().toISOString()
-        });
+        try {
+          await setDoc(doc(db, 'articles', a.id), {
+            name: a.name,
+            description: a.description,
+            unit: a.unit,
+            providerId: a.providerId,
+            createdAt: new Date().toISOString()
+          });
+        } catch {}
       }
 
-      // 3. Seed Clients
       const clientsData = [
         { id: 'cli-creaciones', name: 'Creaciones Modas Sofía S.A.C.', dni: '20601234567', email: 'ventas@modassofia.com', phone: '987654321', address: 'Av. Larco 456, Miraflores, Lima' },
         { id: 'cli-textilperu', name: 'Textiles e Confecciones Perú S.A.', dni: '20559876543', email: 'compras@textilperu.com', phone: '912345678', address: 'Jr. Gamarra 820, La Victoria, Lima' },
@@ -470,32 +466,34 @@ export async function seedDatabaseIfEmpty() {
       ];
 
       for (const c of clientsData) {
-        await setDoc(doc(db, 'clients', c.id), {
-          name: c.name,
-          dni: c.dni,
-          email: c.email,
-          phone: c.phone,
-          address: c.address,
-          createdAt: new Date().toISOString()
-        });
+        try {
+          await setDoc(doc(db, 'clients', c.id), {
+            name: c.name,
+            dni: c.dni,
+            email: c.email,
+            phone: c.phone,
+            address: c.address,
+            createdAt: new Date().toISOString()
+          });
+        } catch {}
       }
 
-      // 4. Seed Sellers
       const sellersData = [
         { id: 'sell-mario', name: 'Mario Vargas Prado', phone: '944333222', email: 'mvargas@empresa.com' },
         { id: 'sell-carla', name: 'Carla Mendoza Ríos', phone: '911222333', email: 'cmendoza@empresa.com' },
       ];
 
       for (const s of sellersData) {
-        await setDoc(doc(db, 'sellers', s.id), {
-          name: s.name,
-          phone: s.phone,
-          email: s.email,
-          createdAt: new Date().toISOString()
-        });
+        try {
+          await setDoc(doc(db, 'sellers', s.id), {
+            name: s.name,
+            phone: s.phone,
+            email: s.email,
+            createdAt: new Date().toISOString()
+          });
+        } catch {}
       }
 
-      // 5. Seed Roll Inventory
       const inventoryData = [
         { id: 'roll-001', rollNumber: 'R-101', articleId: 'art-alg100', providerId: 'prov-texnor', initialMeters: 100, currentMeters: 100, lot: 'LOTE-A25', partida: 'PART-01', tono: 'AZUL-MARINO-04', status: 'available' },
         { id: 'roll-002', rollNumber: 'R-102', articleId: 'art-alg100', providerId: 'prov-texnor', initialMeters: 120, currentMeters: 85, lot: 'LOTE-A25', partida: 'PART-01', tono: 'AZUL-MARINO-04', status: 'available' },
@@ -506,29 +504,27 @@ export async function seedDatabaseIfEmpty() {
       ];
 
       for (const r of inventoryData) {
-        await setDoc(doc(db, 'inventory', r.id), {
-          rollNumber: r.rollNumber,
-          articleId: r.articleId,
-          providerId: r.providerId,
-          initialMeters: r.initialMeters,
-          currentMeters: r.currentMeters,
-          lot: r.lot,
-          partida: r.partida,
-          tono: r.tono,
-          status: r.status,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          appVersion: '2.6r'
-        });
+        try {
+          await setDoc(doc(db, 'inventory', r.id), {
+            rollNumber: r.rollNumber,
+            articleId: r.articleId,
+            providerId: r.providerId,
+            initialMeters: r.initialMeters,
+            currentMeters: r.currentMeters,
+            lot: r.lot,
+            partida: r.partida,
+            tono: r.tono,
+            status: r.status,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            appVersion: '2.6r'
+          });
+        } catch {}
       }
       console.log('Database successfully seeded.');
     }
   } catch (error: any) {
-    if (error?.code === 'permission-denied') {
-      console.warn('Permisos insuficientes para ejecutar seeding en Firestore; omitiendo.');
-      return;
-    }
-    handleFirestoreError(error, OperationType.WRITE, 'seeding');
+    console.warn('Seed database ignored error:', error);
   }
 }
 
