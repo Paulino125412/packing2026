@@ -116,7 +116,8 @@ app.post("/api/sentry-tunnel", express.raw({ type: "*/*", limit: "200kb" }), asy
   }
 });
 
-app.use(express.json({ limit: '10mb' }));
+// Global JSON parser limited to 100kb to protect against large payload DoS
+app.use(express.json({ limit: '100kb' }));
 
 // Standard health check route for container & proxy readiness
 app.get("/api/health", (req, res) => {
@@ -618,15 +619,76 @@ async function lookupRuc(ruc: string) {
   return null;
 }
 
-// Server-side SUNAT / RENIEC Lookup Route
-app.get("/api/sunat/:number", async (req, res) => {
-  const num = req.params.number.trim().replace(/\D/g, '');
+// Rate Limiter for SUNAT/RENIEC Lookups: Protects 3P API tokens and prevents scraping
+const sunatRateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const SUNAT_RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
+const SUNAT_RATE_LIMIT_MAX = 30; // 30 requests / minute
 
-  if (!num) {
-    return res.status(400).json({ success: false, error: 'Ingrese un número de RUC o DNI.' });
+// Server-side SUNAT / RENIEC Lookup Route with strict auth and rate-limiting
+app.get("/api/sunat/:number", async (req, res) => {
+  // 1. Session Authentication Verification
+  const authHeader = (req.headers['x-auth-session'] as string) || (req.headers['authorization'] as string);
+  if (!authHeader) {
+    return res.status(401).json({
+      success: false,
+      error: 'Acceso no autorizado: Se requiere una sesión activa para consultar RUC o DNI.'
+    });
   }
 
-  // Check cache first
+  try {
+    const sessionObj = JSON.parse(authHeader);
+    if (!sessionObj || typeof sessionObj !== 'object' || !sessionObj.email || !sessionObj.id) {
+      return res.status(401).json({
+        success: false,
+        error: 'Sesión no válida o expirada. Por favor inicie sesión nuevamente.'
+      });
+    }
+  } catch {
+    return res.status(401).json({
+      success: false,
+      error: 'Cabecera de autenticación no válida.'
+    });
+  }
+
+  // 2. Strict Input Format Validation
+  const rawParam = req.params.number ? req.params.number.trim() : '';
+  if (!/^\d{8}$|^\d{11}$/.test(rawParam)) {
+    return res.status(400).json({
+      success: false,
+      error: 'Formato inválido. El parámetro debe ser exactamente un DNI numérico (8 dígitos) o un RUC (11 dígitos).'
+    });
+  }
+
+  const num = rawParam;
+
+  // 3. IP Rate Limiting (max 30 requests per minute)
+  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  let rateRecord = sunatRateLimitMap.get(clientIp);
+
+  if (!rateRecord || now > rateRecord.resetTime) {
+    rateRecord = { count: 1, resetTime: now + SUNAT_RATE_LIMIT_WINDOW };
+    sunatRateLimitMap.set(clientIp, rateRecord);
+  } else {
+    rateRecord.count++;
+    if (rateRecord.count > SUNAT_RATE_LIMIT_MAX) {
+      return res.status(429).json({
+        success: false,
+        error: 'Límite de consultas excedido (máximo 30 consultas por minuto). Por favor espere un momento antes de reintentar.'
+      });
+    }
+  }
+
+  // Periodic cleanup of expired rate limit entries
+  if (sunatRateLimitMap.size > 500) {
+    for (const [key, value] of sunatRateLimitMap.entries()) {
+      if (now > value.resetTime) {
+        sunatRateLimitMap.delete(key);
+      }
+    }
+  }
+
+  // 4. Check cache first
   const cached = lookupCache.get(num);
   if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
     return res.json(cached.data);

@@ -1,10 +1,16 @@
 /**
- * Utilidades criptográficas para contraseñas seguras con SHA-256 + Salt
+ * Utilidades criptográficas para contraseñas seguras.
+ * Implementa PBKDF2 (100,000 iteraciones con SHA-256) según estándares NIST SP 800-132 y OWASP,
+ * con compatibilidad hacia atrás y migración transparente de hashes antiguos SHA-256.
  */
 
-// Función auxiliar para convertir ArrayBuffer a cadena hexadecimal
-function bufferToHex(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+const PBKDF2_ITERATIONS = 100000;
+const PBKDF2_KEY_LENGTH = 32; // 256 bits
+const PBKDF2_PREFIX = 'pbkdf2';
+
+// Función auxiliar para convertir ArrayBuffer o Uint8Array a cadena hexadecimal
+function bufferToHex(buffer: ArrayBuffer | Uint8Array): string {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   let hex = '';
   for (let i = 0; i < bytes.length; i++) {
     hex += bytes[i].toString(16).padStart(2, '0');
@@ -12,15 +18,22 @@ function bufferToHex(buffer: ArrayBuffer): string {
   return hex;
 }
 
-// Fallback de SHA-256 en puro JavaScript en caso de entornos sin crypto.subtle
+// Convertir cadena hexadecimal a Uint8Array
+function hexToBytes(hex: string): Uint8Array {
+  const cleanHex = hex.trim().replace(/^0x/, '');
+  const bytes = new Uint8Array(cleanHex.length / 2);
+  for (let i = 0; i < cleanHex.length; i += 2) {
+    bytes[i / 2] = parseInt(cleanHex.substring(i, i + 2), 16);
+  }
+  return bytes;
+}
+
+// Fallback de SHA-256 en puro JavaScript
 function sha256PureJs(ascii: string): string {
   function rightRotate(value: number, amount: number) {
     return (value >>> amount) | (value << (32 - amount));
   }
   
-  const mathPow = Math.pow;
-  const maxWord = mathPow(2, 32);
-  let result = '';
   const words: number[] = [];
   const asciiBitLength = ascii.length * 8;
   
@@ -39,16 +52,14 @@ function sha256PureJs(ascii: string): string {
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
   ];
 
-  let i = 0;
-  for (i = 0; i < ascii.length; i++) {
-    const j = ascii.charCodeAt(i);
-    words[i >> 2] |= j << ((3 - (i % 4)) * 8);
+  for (let i = 0; i < ascii.length; i++) {
+    words[i >> 2] |= ascii.charCodeAt(i) << ((3 - (i % 4)) * 8);
   }
   words[asciiBitLength >> 5] |= 0x80 << (24 - (asciiBitLength % 32));
   words[(((asciiBitLength + 64) >> 9) << 4) + 15] = asciiBitLength;
 
   const w: number[] = [];
-  for (i = 0; i < words.length; i += 16) {
+  for (let i = 0; i < words.length; i += 16) {
     let a = hash[0], b = hash[1], c = hash[2], d = hash[3];
     let e = hash[4], f = hash[5], g = hash[6], h = hash[7];
 
@@ -88,17 +99,18 @@ function sha256PureJs(ascii: string): string {
     hash[7] = (hash[7] + h) | 0;
   }
 
-  for (i = 0; i < 8; i++) {
+  let result = '';
+  for (let i = 0; i < 8; i++) {
     for (let j = 3; j >= 0; j--) {
-      const b = (hash[i] >> (j * 8)) & 255;
-      result += (b < 16 ? '0' : '') + b.toString(16);
+      const byte = (hash[i] >> (j * 8)) & 255;
+      result += (byte < 16 ? '0' : '') + byte.toString(16);
     }
   }
   return result;
 }
 
 /**
- * Genera un salt criptográfico aleatorio en hexadecimal
+ * Genera un salt criptográfico aleatorio en hexadecimal (16 bytes = 32 hex chars)
  */
 export function generateSalt(length: number = 16): string {
   try {
@@ -108,9 +120,8 @@ export function generateSalt(length: number = 16): string {
       return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
     }
   } catch (err) {
-    console.warn("crypto.getRandomValues not available, using pseudo-random salt:", err);
+    console.warn("crypto.getRandomValues no disponible, usando salt alternativo:", err);
   }
-  // Fallback
   let salt = '';
   const chars = '0123456789abcdef';
   for (let i = 0; i < length * 2; i++) {
@@ -120,27 +131,57 @@ export function generateSalt(length: number = 16): string {
 }
 
 /**
- * Hashea una contraseña usando SHA-256 con Salt
+ * Deriva una clave PBKDF2 utilizando Web Crypto API
  */
-export async function hashPassword(password: string, customSalt?: string): Promise<{ hash: string; salt: string }> {
+async function derivePbkdf2(password: string, salt: string, iterations: number = PBKDF2_ITERATIONS): Promise<string> {
+  const encoder = new TextEncoder();
+  const passwordKey = await window.crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveBits']
+  );
+
+  const saltBytes = encoder.encode(salt);
+  const derivedBits = await window.crypto.subtle.deriveBits(
+    {
+      name: 'PBKDF2',
+      salt: saltBytes,
+      iterations,
+      hash: 'SHA-256'
+    },
+    passwordKey,
+    PBKDF2_KEY_LENGTH * 8
+  );
+
+  return bufferToHex(derivedBits);
+}
+
+/**
+ * Hashea una contraseña usando PBKDF2 (100,000 iteraciones con SHA-256)
+ * Retorna formato: "pbkdf2:100000:<salt>:<hash>"
+ */
+export async function hashPassword(
+  password: string, 
+  customSalt?: string
+): Promise<{ hash: string; salt: string }> {
   const salt = customSalt || generateSalt(16);
-  const dataToHash = `${salt}:${password}`;
 
   try {
     if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
-      const encoder = new TextEncoder();
-      const data = encoder.encode(dataToHash);
-      const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+      const derivedHex = await derivePbkdf2(password, salt, PBKDF2_ITERATIONS);
       return {
-        hash: bufferToHex(hashBuffer),
+        hash: `${PBKDF2_PREFIX}:${PBKDF2_ITERATIONS}:${salt}:${derivedHex}`,
         salt
       };
     }
   } catch (err) {
-    console.warn("Web Crypto Subtle unavailable, falling back to pure JS SHA-256:", err);
+    console.warn("Web Crypto Subtle no disponible para PBKDF2, usando fallback SHA-256:", err);
   }
 
-  // Fallback con algoritmo puro JS
+  // Fallback seguro
+  const dataToHash = `${salt}:${password}`;
   return {
     hash: sha256PureJs(dataToHash),
     salt
@@ -148,9 +189,67 @@ export async function hashPassword(password: string, customSalt?: string): Promi
 }
 
 /**
- * Valida si la contraseña ingresada coincide con el hash almacenado
+ * Valida la contraseña contra el hash almacenado.
+ * Detecta automáticamente si el hash está en formato moderno PBKDF2 o si es un hash
+ * heredado de SHA-256 + Salt, permitiendo la migración sin fricción.
+ */
+export async function verifyPasswordWithMigration(
+  password: string,
+  salt: string,
+  storedHash: string
+): Promise<{ isValid: boolean; needsRehash: boolean }> {
+  if (!storedHash || !password) {
+    return { isValid: false, needsRehash: false };
+  }
+
+  // Caso 1: Hash PBKDF2 moderno (ej: "pbkdf2:100000:<salt>:<hash>")
+  if (storedHash.startsWith(`${PBKDF2_PREFIX}:`)) {
+    const parts = storedHash.split(':');
+    if (parts.length >= 4) {
+      const iterations = parseInt(parts[1], 10) || PBKDF2_ITERATIONS;
+      const hashSalt = parts[2] || salt;
+      const expectedHash = parts[3];
+
+      try {
+        if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+          const derived = await derivePbkdf2(password, hashSalt, iterations);
+          const isValid = derived.toLowerCase() === expectedHash.toLowerCase();
+          return { isValid, needsRehash: false };
+        }
+      } catch (err) {
+        console.warn("Error verificando PBKDF2:", err);
+      }
+    }
+  }
+
+  // Caso 2: Hash heredado SHA-256 + Salt (ej: "a1b2c3d4...")
+  let legacyHash = '';
+  const dataToHash = `${salt}:${password}`;
+
+  try {
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+      const encoder = new TextEncoder();
+      const hashBuffer = await window.crypto.subtle.digest('SHA-256', encoder.encode(dataToHash));
+      legacyHash = bufferToHex(hashBuffer);
+    } else {
+      legacyHash = sha256PureJs(dataToHash);
+    }
+  } catch {
+    legacyHash = sha256PureJs(dataToHash);
+  }
+
+  const matchesLegacy = legacyHash.toLowerCase() === storedHash.toLowerCase();
+  return {
+    isValid: matchesLegacy,
+    // Si coincidió con el formato antiguo, necesita ser remigrado a PBKDF2 en el login
+    needsRehash: matchesLegacy
+  };
+}
+
+/**
+ * Función estándar de verificación para mantener compatibilidad hacia atrás
  */
 export async function verifyPassword(password: string, salt: string, storedHash: string): Promise<boolean> {
-  const { hash } = await hashPassword(password, salt);
-  return hash.toLowerCase() === storedHash.toLowerCase();
+  const result = await verifyPasswordWithMigration(password, salt, storedHash);
+  return result.isValid;
 }

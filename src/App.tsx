@@ -713,6 +713,20 @@ export default function App() {
     return <LoginScreen />;
   }
 
+  // Protección crítica de cambio obligatorio de contraseña: Si la cuenta requiere cambiar su clave,
+  // la aplicación principal NO se monta en el DOM, impidiendo cualquier bypass visual.
+  if (mustChangePassword || currentUser.mustChangePassword) {
+    return (
+      <div className={`min-h-screen bg-slate-950 flex items-center justify-center p-4 ${theme === 'dark' ? 'dark' : ''}`}>
+        <ChangePasswordModal 
+          isOpen={true} 
+          onClose={() => {}} 
+          isForced={true} 
+        />
+      </div>
+    );
+  }
+
   return (
     <div translate="no" className={`h-screen bg-app-bg text-app-text flex flex-col md:flex-row font-sans select-none antialiased notranslate overflow-hidden ${theme === 'dark' ? 'dark' : ''}`}>
       

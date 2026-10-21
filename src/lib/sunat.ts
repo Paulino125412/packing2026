@@ -67,7 +67,13 @@ export async function lookupRucOrDni(number: string): Promise<SunatQueryResult> 
 
   // 1. Try our Express backend API endpoint first (Bypasses CORS completely)
   try {
-    const apiRes = await fetch(`/api/sunat/${cleanNumber}`);
+    const sessionData = localStorage.getItem('texflow_auth_session') || '';
+    const apiRes = await fetch(`/api/sunat/${cleanNumber}`, {
+      headers: {
+        'Accept': 'application/json',
+        'x-auth-session': sessionData
+      }
+    });
     if (apiRes.ok) {
       const data = await apiRes.json();
       if (data.success) {

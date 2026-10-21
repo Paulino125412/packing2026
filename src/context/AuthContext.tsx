@@ -6,13 +6,11 @@ import {
   setDoc, 
   updateDoc, 
   deleteDoc, 
-  onSnapshot, 
-  query, 
-  where 
+  onSnapshot 
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { UserProfile, UserPermissions, UserRole } from '../types';
-import { hashPassword, verifyPassword } from '../utils/crypto';
+import { hashPassword, verifyPassword, verifyPasswordWithMigration } from '../utils/crypto';
 import { ROLE_PRESETS } from '../utils/roles';
 
 interface AuthContextType {
@@ -28,11 +26,13 @@ interface AuthContextType {
     password: string;
     role: UserRole;
     permissions: UserPermissions;
+    mustChangePassword?: boolean;
   }) => Promise<{ success: boolean; message?: string }>;
   updateUser: (
     id: string,
     updates: Partial<Omit<UserProfile, 'passwordHash' | 'salt'>>,
-    newPassword?: string
+    newPassword?: string,
+    forcePasswordChangeOnNextLogin?: boolean
   ) => Promise<{ success: boolean; message?: string }>;
   toggleUserStatus: (id: string) => Promise<{ success: boolean; message?: string }>;
   deleteUser: (id: string) => Promise<{ success: boolean; message?: string }>;
@@ -59,7 +59,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [mustChangePassword, setMustChangePassword] = useState<boolean>(() => {
-    return sessionStorage.getItem('texflow_must_change_password') === 'true';
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_SESSION_KEY);
+      if (saved) {
+        const u = JSON.parse(saved) as UserProfile;
+        return !!u.mustChangePassword;
+      }
+    } catch {
+      // fallback
+    }
+    return false;
   });
 
   // Guardar sesión en localStorage
@@ -67,30 +76,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser(user);
     if (user) {
       localStorage.setItem(LOCAL_STORAGE_SESSION_KEY, JSON.stringify(user));
+      setMustChangePassword(!!user.mustChangePassword);
     } else {
       localStorage.removeItem(LOCAL_STORAGE_SESSION_KEY);
+      setMustChangePassword(false);
+      sessionStorage.removeItem('texflow_must_change_password');
     }
   };
 
-  // Verificar si la contraseña del usuario actual es la contraseña por defecto admin123
+  // Verificar estado de cambio obligatorio de contraseña en base a la cuenta activa
   useEffect(() => {
     if (currentUser) {
-      verifyPassword('admin123', currentUser.salt, currentUser.passwordHash)
-        .then((isDefault) => {
-          if (isDefault) {
-            setMustChangePassword(true);
-            sessionStorage.setItem('texflow_must_change_password', 'true');
-          } else {
-            setMustChangePassword(false);
-            sessionStorage.removeItem('texflow_must_change_password');
-          }
-        })
-        .catch(() => {
-          // Si hay algún error, no forzar cambio
-        });
+      if (currentUser.mustChangePassword) {
+        setMustChangePassword(true);
+      } else {
+        // Validación adicional por seguridad
+        verifyPassword('admin123', currentUser.salt, currentUser.passwordHash)
+          .then((isDefault) => {
+            if (isDefault) {
+              setMustChangePassword(true);
+            }
+          })
+          .catch(() => {});
+      }
     } else {
       setMustChangePassword(false);
-      sessionStorage.removeItem('texflow_must_change_password');
     }
   }, [currentUser]);
 
@@ -113,7 +123,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: 'admin',
           status: 'active',
           permissions: { ...ROLE_PRESETS.admin.permissions },
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          mustChangePassword: true // Forzar cambio obligatorio en el primer acceso
         };
 
         await setDoc(doc(db, 'users', adminDocId), newAdmin);
@@ -143,24 +154,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await ensureSuperAdminExists(users);
 
         // Si el usuario actual está logueado, sincronizar sus permisos y estado
-        // Corrección: actualizar localStorage directamente para evitar doble invocación anidada de setCurrentUser
         setCurrentUser((prev) => {
           if (!prev) return null;
           const freshUser = users.find(u => u.id === prev.id || u.email.toLowerCase() === prev.email.toLowerCase());
           if (!freshUser || freshUser.status === 'inactive') {
-            // Usuario fue eliminado o desactivado
             localStorage.removeItem(LOCAL_STORAGE_SESSION_KEY);
             return null;
           }
-          // Actualizar datos directamente en storage y retornar el nuevo usuario
           localStorage.setItem(LOCAL_STORAGE_SESSION_KEY, JSON.stringify(freshUser));
+          if (freshUser.mustChangePassword) {
+            setMustChangePassword(true);
+          }
           return freshUser;
         });
 
         setIsLoading(false);
       }, (error) => {
         console.warn('Error al suscribir a colección users (Firestore offline o reglas):', error);
-        // Fallback a localStorage
         try {
           const cached = localStorage.getItem(LOCAL_STORAGE_USERS_KEY);
           if (cached) {
@@ -180,7 +190,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, [ensureSuperAdminExists]);
 
-  // Login
+  // Login con migración automática a PBKDF2 y verificación obligatoria de cambio de contraseña
   const login = async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
@@ -191,7 +201,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     let users = [...usersList];
 
-    // Si la lista está vacía, intentar buscar directamente en Firestore o local storage
     if (users.length === 0) {
       try {
         const snap = await getDocs(collection(db, 'users'));
@@ -204,7 +213,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // Si aún no existe el superadmin (ej. primer arranque offline), inicializarlo
+    // Inicializar superadmin en caso de primer arranque offline
     if (users.length === 0 && cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
       const { hash, salt } = await hashPassword('admin123');
       const seededAdmin: UserProfile = {
@@ -216,7 +225,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: 'admin',
         status: 'active',
         permissions: { ...ROLE_PRESETS.admin.permissions },
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        mustChangePassword: true
       };
       users = [seededAdmin];
       try {
@@ -250,31 +260,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    const isMatch = await verifyPassword(cleanPassword, foundUser.salt, foundUser.passwordHash);
+    // Verificación criptográfica con detección de hashes heredados (SHA-256 vs PBKDF2)
+    const { isValid, needsRehash } = await verifyPasswordWithMigration(cleanPassword, foundUser.salt, foundUser.passwordHash);
 
-    if (!isMatch) {
+    if (!isValid) {
       return { success: false, message: 'Contraseña incorrecta. Inténtalo de nuevo.' };
     }
 
-    // Login exitoso: Actualizar fecha de último acceso
+    let finalHash = foundUser.passwordHash;
+    let finalSalt = foundUser.salt;
+
+    // Migración silenciosa automática a PBKDF2 (100,000 iteraciones) al primer login exitoso
+    if (needsRehash) {
+      try {
+        const upgraded = await hashPassword(cleanPassword);
+        finalHash = upgraded.hash;
+        finalSalt = upgraded.salt;
+        await updateDoc(doc(db, 'users', foundUser.id), {
+          passwordHash: finalHash,
+          salt: finalSalt,
+          updatedAt: new Date().toISOString()
+        });
+      } catch (err) {
+        console.warn('Error durante auto-migración de hash a PBKDF2:', err);
+      }
+    }
+
+    const isDefaultKey = cleanPassword === 'admin123';
+    const forceChange = !!foundUser.mustChangePassword || isDefaultKey;
+
     const updatedUser: UserProfile = {
       ...foundUser,
-      lastLoginAt: new Date().toISOString()
+      passwordHash: finalHash,
+      salt: finalSalt,
+      lastLoginAt: new Date().toISOString(),
+      mustChangePassword: forceChange
     };
 
     try {
       await updateDoc(doc(db, 'users', foundUser.id), {
-        lastLoginAt: updatedUser.lastLoginAt
+        lastLoginAt: updatedUser.lastLoginAt,
+        mustChangePassword: forceChange
       });
     } catch {
       // Ignorar si offline
     }
 
-    if (cleanPassword === 'admin123') {
-      setMustChangePassword(true);
-      sessionStorage.setItem('texflow_must_change_password', 'true');
-    }
-
+    setMustChangePassword(forceChange);
     saveSession(updatedUser);
     return { success: true };
   };
@@ -283,26 +315,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     saveSession(null);
     setMustChangePassword(false);
-    sessionStorage.removeItem('texflow_must_change_password');
   };
 
   // Verificación de permisos
   const hasPermission = (permissionKey: keyof UserPermissions): boolean => {
     if (!currentUser) return false;
-    // El Super Admin o rol admin tiene siempre acceso a todo
     if (currentUser.role === 'admin' || currentUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
       return true;
     }
     return !!currentUser.permissions?.[permissionKey];
   };
 
-  // Crear nuevo usuario
+  // Crear nuevo usuario (con obligación de cambio de contraseña en su primer acceso)
   const createUser = async (data: {
     name: string;
     email: string;
     password: string;
     role: UserRole;
     permissions: UserPermissions;
+    mustChangePassword?: boolean;
   }): Promise<{ success: boolean; message?: string }> => {
     const cleanEmail = data.email.trim().toLowerCase();
     const cleanName = data.name.trim();
@@ -315,7 +346,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'La contraseña debe tener al menos 6 caracteres.' };
     }
 
-    // Verificar si ya existe
     const exists = usersList.some(u => u.email.toLowerCase() === cleanEmail);
     if (exists) {
       return { success: false, message: `Ya existe un usuario registrado con el correo ${cleanEmail}.` };
@@ -334,12 +364,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role: data.role,
         status: 'active',
         permissions: data.permissions,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        mustChangePassword: data.mustChangePassword !== undefined ? data.mustChangePassword : true
       };
 
       await setDoc(doc(db, 'users', newId), newUser);
 
-      // Actualizar estado local
       const updatedList = [...usersList, newUser];
       setUsersList(updatedList);
       localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(updatedList));
@@ -355,7 +385,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateUser = async (
     id: string,
     updates: Partial<Omit<UserProfile, 'passwordHash' | 'salt'>>,
-    newPassword?: string
+    newPassword?: string,
+    forcePasswordChangeOnNextLogin?: boolean
   ): Promise<{ success: boolean; message?: string }> => {
     try {
       const userRef = doc(db, 'users', id);
@@ -364,6 +395,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: new Date().toISOString()
       };
 
+      if (forcePasswordChangeOnNextLogin !== undefined) {
+        payload.mustChangePassword = forcePasswordChangeOnNextLogin;
+      }
+
       if (newPassword && newPassword.trim()) {
         if (newPassword.trim().length < 6) {
           return { success: false, message: 'La nueva contraseña debe tener al menos 6 caracteres.' };
@@ -371,16 +406,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { hash, salt } = await hashPassword(newPassword.trim());
         payload.passwordHash = hash;
         payload.salt = salt;
+        // Si el administrador asignó una nueva clave temporal, forzar cambio
+        if (forcePasswordChangeOnNextLogin === undefined) {
+          payload.mustChangePassword = true;
+        }
       }
 
       await updateDoc(userRef, payload);
 
-      // Si es el usuario actual, actualizar sesión
       if (currentUser?.id === id) {
         saveSession({
           ...currentUser,
           ...updates,
-          ...(payload.passwordHash ? { passwordHash: payload.passwordHash as string, salt: payload.salt as string } : {})
+          ...(payload.passwordHash ? { passwordHash: payload.passwordHash as string, salt: payload.salt as string } : {}),
+          ...(payload.mustChangePassword !== undefined ? { mustChangePassword: !!payload.mustChangePassword } : {})
         });
       }
 
@@ -434,7 +473,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Cambiar propia contraseña
+  // Cambiar propia contraseña (valida que no sea repetida ni por defecto y elimina el bloqueo obligatorio)
   const changeMyPassword = async (currentPassword: string, newPassword: string): Promise<{ success: boolean; message?: string }> => {
     if (!currentUser) return { success: false, message: 'No hay una sesión activa.' };
 
@@ -451,18 +490,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'La nueva contraseña no puede ser la clave por defecto admin123. Elige una diferente.' };
     }
 
+    if (newPassword.trim() === currentPassword.trim()) {
+      return { success: false, message: 'La nueva contraseña no puede ser idéntica a la contraseña actual.' };
+    }
+
     try {
       const { hash, salt } = await hashPassword(newPassword.trim());
+      
+      // Actualizar en base de datos Firestore
       await updateDoc(doc(db, 'users', currentUser.id), {
         passwordHash: hash,
         salt: salt,
+        mustChangePassword: false,
         updatedAt: new Date().toISOString()
       });
 
+      // Actualizar sesión persistente
       saveSession({
         ...currentUser,
         passwordHash: hash,
-        salt: salt
+        salt: salt,
+        mustChangePassword: false
       });
 
       setMustChangePassword(false);

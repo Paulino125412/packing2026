@@ -44,6 +44,7 @@ export interface UserProfile {
   createdAt: string;
   updatedAt?: string;
   lastLoginAt?: string;
+  mustChangePassword?: boolean;
 }
 
 export interface Provider {

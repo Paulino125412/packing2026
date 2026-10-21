@@ -74,4 +74,26 @@ test.describe('Infraestructura y Verificación del Sistema', () => {
 
     expect(response.status()).toBe(413);
   });
+
+  test('GET /api/sunat/:number sin cabecera de autenticación responde 401 Unauthorized', async ({ request }) => {
+    const response = await request.get('/api/sunat/20100070970');
+    expect(response.status()).toBe(401);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toContain('Acceso no autorizado');
+  });
+
+  test('GET /api/sunat/:number con formato inválido responde 400 Bad Request', async ({ request }) => {
+    const fakeSession = JSON.stringify({ id: 'test_user', email: 'test@example.com' });
+    const response = await request.get('/api/sunat/abc123', {
+      headers: {
+        'x-auth-session': fakeSession
+      }
+    });
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.error).toContain('Formato inválido');
+  });
 });
+
