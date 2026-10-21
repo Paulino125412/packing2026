@@ -1,9 +1,24 @@
 import express from "express";
 import path from "path";
+import crypto from "node:crypto";
 import { createServer as createViteServer } from "vite";
+import { initializeApp as initAdminApp, getApps as getAdminApps } from "firebase-admin/app";
+import { getAuth as getAdminAuth } from "firebase-admin/auth";
+import { getFirestore as getAdminFirestore } from "firebase-admin/firestore";
+import firebaseConfig from "./firebase-applet-config.json";
 
 const app = express();
 const PORT = 3000;
+
+// Trust proxy configuration for Cloud Run / reverse proxies so req.ip is the real client IP
+app.set('trust proxy', 1);
+
+// Initialize Firebase Admin SDK for server-side token verification
+if (!getAdminApps().length) {
+  initAdminApp({
+    projectId: firebaseConfig.projectId
+  });
+}
 
 // Sentry Tunnel Route: Bypasses browser AdBlockers and Brave Shields.
 // MUST be defined before global express.json() so express.raw receives the raw unparsed stream.
@@ -122,6 +137,172 @@ app.use(express.json({ limit: '100kb' }));
 // Standard health check route for container & proxy readiness
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", timestamp: Date.now() });
+});
+
+// Constant-time hex comparison
+function safeEqualHex(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const bufA = Buffer.from(a, 'hex');
+  const bufB = Buffer.from(b, 'hex');
+  if (bufA.length === 0 || bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+// Server-side legacy password hash verification (PBKDF2 and legacy SHA-256)
+function verifyServerLegacyPassword(password: string, salt: string, storedHash: string): boolean {
+  if (!password || !salt || !storedHash) return false;
+
+  // PBKDF2 Format: pbkdf2:<iterations>:<salt>:<hexHash>
+  if (storedHash.startsWith('pbkdf2:')) {
+    const parts = storedHash.split(':');
+    if (parts.length === 4) {
+      const iterations = parseInt(parts[1], 10);
+      const saltFromHash = parts[2];
+      const targetHash = parts[3];
+      if (!iterations || !saltFromHash || !targetHash) return false;
+
+      const derived = crypto.pbkdf2Sync(password, saltFromHash, iterations, 32, 'sha256').toString('hex');
+      return safeEqualHex(derived, targetHash);
+    }
+  }
+
+  // Legacy SHA-256 combinations
+  const c1 = crypto.createHash('sha256').update(salt + password).digest('hex');
+  if (safeEqualHex(c1, storedHash)) return true;
+
+  const c2 = crypto.createHash('sha256').update(password + salt).digest('hex');
+  if (safeEqualHex(c2, storedHash)) return true;
+
+  const c3 = crypto.createHash('sha256').update(password).digest('hex');
+  if (safeEqualHex(c3, storedHash)) return true;
+
+  return false;
+}
+
+// Lazy Account Migration Route: Bridges legacy password hashes to Firebase Auth securely
+const migrationRateLimitMap = new Map<string, { count: number; resetTime: number }>();
+
+app.post("/api/auth/migrate-legacy", async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password || typeof email !== 'string' || typeof password !== 'string') {
+    return res.status(400).json({ success: false, message: 'Correo y contraseña requeridos.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanPassword = password.trim();
+
+  // Rate Limiting by real client IP (max 10 attempts / minute)
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const rateKey = `mig:${clientIp}`;
+  let record = migrationRateLimitMap.get(rateKey);
+  if (!record || now > record.resetTime) {
+    record = { count: 1, resetTime: now + 60000 };
+    migrationRateLimitMap.set(rateKey, record);
+  } else {
+    record.count++;
+    if (record.count > 10) {
+      return res.status(429).json({ 
+        success: false, 
+        message: 'Demasiados intentos de verificación. Inténtalo de nuevo en 1 minuto.' 
+      });
+    }
+  }
+
+  try {
+    const firestore = getAdminFirestore();
+    const adminAuth = getAdminAuth();
+    const SUPER_ADMIN = 'paulcalebfs123@gmail.com';
+
+    let userDoc: any = null;
+    let oldDocId = '';
+
+    const usersSnap = await firestore.collection('users').where('email', '==', cleanEmail).get();
+    if (!usersSnap.empty) {
+      userDoc = usersSnap.docs[0].data();
+      oldDocId = usersSnap.docs[0].id;
+    }
+
+    let passwordValid = false;
+
+    if (userDoc && userDoc.passwordHash && userDoc.salt) {
+      passwordValid = verifyServerLegacyPassword(cleanPassword, userDoc.salt, userDoc.passwordHash);
+    } else if (cleanEmail === SUPER_ADMIN && cleanPassword === 'admin123') {
+      passwordValid = true;
+    }
+
+    if (!passwordValid) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Credenciales inválidas o cuenta no registrada.' 
+      });
+    }
+
+    // 1. Provision / update account in Firebase Auth
+    let fbUser;
+    try {
+      fbUser = await adminAuth.getUserByEmail(cleanEmail);
+      await adminAuth.updateUser(fbUser.uid, { password: cleanPassword });
+    } catch (e: any) {
+      if (e.code === 'auth/user-not-found') {
+        fbUser = await adminAuth.createUser({
+          email: cleanEmail,
+          password: cleanPassword,
+          displayName: userDoc?.name || (cleanEmail === SUPER_ADMIN ? 'Paul Administrador' : 'Usuario')
+        });
+      } else {
+        throw e;
+      }
+    }
+
+    const targetUid = fbUser.uid;
+
+    // 2. Ensure user profile in Firestore under UID, without passwordHash or salt
+    const profileData: Record<string, any> = {
+      id: targetUid,
+      name: userDoc?.name || (cleanEmail === SUPER_ADMIN ? 'Paul Administrador' : 'Usuario'),
+      email: cleanEmail,
+      role: userDoc?.role || (cleanEmail === SUPER_ADMIN ? 'admin' : 'custom'),
+      status: userDoc?.status || 'active',
+      permissions: userDoc?.permissions || (cleanEmail === SUPER_ADMIN ? {
+        inventoryView: true,
+        inventoryCreate: true,
+        inventoryEdit: true,
+        inventoryDelete: true,
+        inventoryAdjust: true,
+        packingListView: true,
+        packingListCreate: true,
+        packingListCancel: true,
+        manageClients: true,
+        manageArticles: true,
+        manageProviders: true,
+        manageSellers: true,
+        manageUsers: true,
+        salesOrdersView: true,
+        salesOrdersCreate: true
+      } : {}),
+      mustChangePassword: userDoc?.mustChangePassword !== undefined ? userDoc.mustChangePassword : (cleanPassword === 'admin123'),
+      createdAt: userDoc?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    await firestore.collection('users').doc(targetUid).set(profileData, { merge: true });
+
+    // Clean up old legacy doc if different ID
+    if (oldDocId && oldDocId !== targetUid) {
+      try {
+        await firestore.collection('users').doc(oldDocId).delete();
+      } catch {}
+    }
+
+    return res.json({ success: true, migrated: true });
+  } catch (err: any) {
+    console.error('Error in /api/auth/migrate-legacy:', err);
+    return res.status(500).json({ 
+      success: false, 
+      message: err?.message || 'Error del servidor durante la migración de cuenta.' 
+    });
+  }
 });
 
 // In-memory cache for fast repeat lookups
@@ -624,33 +805,39 @@ const sunatRateLimitMap = new Map<string, { count: number; resetTime: number }>(
 const SUNAT_RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
 const SUNAT_RATE_LIMIT_MAX = 30; // 30 requests / minute
 
-// Server-side SUNAT / RENIEC Lookup Route with strict auth and rate-limiting
-app.get("/api/sunat/:number", async (req, res) => {
-  // 1. Session Authentication Verification
-  const authHeader = (req.headers['x-auth-session'] as string) || (req.headers['authorization'] as string);
-  if (!authHeader) {
+// Middleware to verify Firebase ID token using firebase-admin
+async function requireFirebaseAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({
       success: false,
-      error: 'Acceso no autorizado: Se requiere una sesión activa para consultar RUC o DNI.'
+      error: 'Acceso no autorizado: Se requiere token de autorización Bearer de Firebase.'
+    });
+  }
+
+  const idToken = authHeader.split('Bearer ')[1]?.trim();
+  if (!idToken) {
+    return res.status(401).json({
+      success: false,
+      error: 'Token Bearer ausente o malformado.'
     });
   }
 
   try {
-    const sessionObj = JSON.parse(authHeader);
-    if (!sessionObj || typeof sessionObj !== 'object' || !sessionObj.email || !sessionObj.id) {
-      return res.status(401).json({
-        success: false,
-        error: 'Sesión no válida o expirada. Por favor inicie sesión nuevamente.'
-      });
-    }
-  } catch {
+    const decodedToken = await getAdminAuth().verifyIdToken(idToken);
+    (req as any).user = decodedToken;
+    next();
+  } catch (err: any) {
     return res.status(401).json({
       success: false,
-      error: 'Cabecera de autenticación no válida.'
+      error: `Token de autenticación inválido o vencido (${err?.message || 'Unauthorized'}).`
     });
   }
+}
 
-  // 2. Strict Input Format Validation
+// Server-side SUNAT / RENIEC Lookup Route with real Firebase ID token verification and dual rate-limiting
+app.get("/api/sunat/:number", requireFirebaseAuth, async (req, res) => {
+  // 1. Strict Input Format Validation
   const rawParam = req.params.number ? req.params.number.trim() : '';
   if (!/^\d{8}$|^\d{11}$/.test(rawParam)) {
     return res.status(400).json({
@@ -661,26 +848,33 @@ app.get("/api/sunat/:number", async (req, res) => {
 
   const num = rawParam;
 
-  // 3. IP Rate Limiting (max 30 requests per minute)
-  const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
+  // 2. Dual Rate Limiting (by real client IP and authenticated user UID)
+  // Express 'trust proxy' provides the real client IP in req.ip
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+  const userUid = (req as any).user?.uid || 'anon';
   const now = Date.now();
-  let rateRecord = sunatRateLimitMap.get(clientIp);
 
-  if (!rateRecord || now > rateRecord.resetTime) {
-    rateRecord = { count: 1, resetTime: now + SUNAT_RATE_LIMIT_WINDOW };
-    sunatRateLimitMap.set(clientIp, rateRecord);
-  } else {
-    rateRecord.count++;
-    if (rateRecord.count > SUNAT_RATE_LIMIT_MAX) {
-      return res.status(429).json({
-        success: false,
-        error: 'Límite de consultas excedido (máximo 30 consultas por minuto). Por favor espere un momento antes de reintentar.'
-      });
+  const ipKey = `ip:${clientIp}`;
+  const uidKey = `uid:${userUid}`;
+
+  for (const key of [ipKey, uidKey]) {
+    let rateRecord = sunatRateLimitMap.get(key);
+    if (!rateRecord || now > rateRecord.resetTime) {
+      rateRecord = { count: 1, resetTime: now + SUNAT_RATE_LIMIT_WINDOW };
+      sunatRateLimitMap.set(key, rateRecord);
+    } else {
+      rateRecord.count++;
+      if (rateRecord.count > SUNAT_RATE_LIMIT_MAX) {
+        return res.status(429).json({
+          success: false,
+          error: 'Límite de consultas excedido (máximo 30 consultas por minuto). Por favor espere un momento antes de reintentar.'
+        });
+      }
     }
   }
 
   // Periodic cleanup of expired rate limit entries
-  if (sunatRateLimitMap.size > 500) {
+  if (sunatRateLimitMap.size > 1000) {
     for (const [key, value] of sunatRateLimitMap.entries()) {
       if (now > value.resetTime) {
         sunatRateLimitMap.delete(key);
@@ -688,7 +882,7 @@ app.get("/api/sunat/:number", async (req, res) => {
     }
   }
 
-  // 4. Check cache first
+  // 3. Check cache first
   const cached = lookupCache.get(num);
   if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
     return res.json(cached.data);

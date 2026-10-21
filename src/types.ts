@@ -36,8 +36,8 @@ export interface UserProfile {
   id: string;
   name: string;
   email: string;
-  passwordHash: string;
-  salt: string;
+  passwordHash?: string;
+  salt?: string;
   role: UserRole;
   status: 'active' | 'inactive';
   permissions: UserPermissions;

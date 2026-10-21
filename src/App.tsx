@@ -379,11 +379,17 @@ export default function App() {
     window.location.reload();
   };
 
-  // Trigger Database Seed + Firestore listeners
+  // Trigger Database Seed + Firestore listeners (ONLY when authenticated)
   useEffect(() => {
     let unsubs: (() => void)[] = [];
     let timeoutId: any = null;
     let fallbackTriggered = false;
+
+    // IMPORTANT: If user is not authenticated, do NOT attempt to query or seed Firestore
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
 
     const triggerFallback = (reason: string) => {
       if (fallbackTriggered) return;
@@ -512,11 +518,11 @@ export default function App() {
         try { unsub(); } catch(e) {}
       });
     };
-  }, [listenerRefreshKey]);
+  }, [currentUser?.id, listenerRefreshKey, isLocal]);
 
   // Separate independent effect for Inventory collection with limit
   useEffect(() => {
-    if (getLocalMode?.() || isLocal) return;
+    if (!currentUser || getLocalMode?.() || isLocal) return;
     const unsubInventory = onSnapshot(
       query(collection(db, 'inventory'), orderBy('createdAt', 'desc'), limit(inventoryLimit)),
       (snapshot) => {
@@ -530,7 +536,7 @@ export default function App() {
       }
     );
     return () => unsubInventory();
-  }, [inventoryLimit, isLocal, listenerRefreshKey]);
+  }, [currentUser?.id, inventoryLimit, isLocal, listenerRefreshKey]);
 
   // Refresh helper (mostly handled by onSnapshot, but triggers full check)
   const handleForceRefresh = async () => {

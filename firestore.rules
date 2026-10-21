@@ -1,12 +1,44 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global Safety Net
+    // Global Safety Net: default deny all
     match /{document=**} {
       allow read, write: if false;
     }
 
     // Common Helpers
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isUserActive() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getUserData().status == 'active';
+    }
+
+    function getUserRole() {
+      return getUserData().role;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'paulcalebfs123@gmail.com' ||
+        (isUserActive() && getUserRole() == 'admin')
+      );
+    }
+
+    function hasPermission(permKey) {
+      return isUserActive() && (
+        getUserRole() == 'admin' ||
+        (getUserData().permissions != null && getUserData().permissions[permKey] == true)
+      );
+    }
+
     function isValidId(id) {
       return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
@@ -21,8 +53,10 @@ service cloud.firestore {
 
     // 1. Providers
     match /providers/{providerId} {
-      allow read: if true;
-      allow create: if isValidId(providerId) 
+      allow read: if isUserActive();
+      allow create: if isUserActive() 
+        && (isAdmin() || hasPermission('manageProviders'))
+        && isValidId(providerId) 
         && incoming(request).name is string 
         && incoming(request).name.size() > 0 
         && incoming(request).name.size() <= 128
@@ -34,7 +68,9 @@ service cloud.firestore {
         && (!('hasWeight' in incoming(request)) || incoming(request).hasWeight is bool)
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow update: if isValidId(providerId) 
+      allow update: if isUserActive() 
+        && (isAdmin() || hasPermission('manageProviders'))
+        && isValidId(providerId) 
         && incoming(request).name is string 
         && incoming(request).name.size() > 0 
         && incoming(request).name.size() <= 128
@@ -47,13 +83,15 @@ service cloud.firestore {
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && isCreatedAtImmutable(request, resource)
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow delete: if isValidId(providerId);
+      allow delete: if isUserActive() && (isAdmin() || hasPermission('manageProviders')) && isValidId(providerId);
     }
 
     // 2. Articles
     match /articles/{articleId} {
-      allow read: if true;
-      allow create: if isValidId(articleId)
+      allow read: if isUserActive();
+      allow create: if isUserActive()
+        && (isAdmin() || hasPermission('manageArticles'))
+        && isValidId(articleId)
         && incoming(request).name is string 
         && incoming(request).name.size() > 0 
         && incoming(request).name.size() <= 128
@@ -64,7 +102,9 @@ service cloud.firestore {
         && (!('unit' in incoming(request)) || (incoming(request).unit is string && incoming(request).unit.size() <= 50))
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow update: if isValidId(articleId)
+      allow update: if isUserActive()
+        && (isAdmin() || hasPermission('manageArticles'))
+        && isValidId(articleId)
         && incoming(request).name is string 
         && incoming(request).name.size() > 0 
         && incoming(request).name.size() <= 128
@@ -76,13 +116,15 @@ service cloud.firestore {
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && isCreatedAtImmutable(request, resource)
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow delete: if isValidId(articleId);
+      allow delete: if isUserActive() && (isAdmin() || hasPermission('manageArticles')) && isValidId(articleId);
     }
 
     // 3. Clients
     match /clients/{clientId} {
-      allow read: if true;
-      allow create: if isValidId(clientId)
+      allow read: if isUserActive();
+      allow create: if isUserActive()
+        && (isAdmin() || hasPermission('manageClients'))
+        && isValidId(clientId)
         && incoming(request).name is string 
         && incoming(request).name.size() > 0 
         && incoming(request).name.size() <= 128
@@ -96,7 +138,9 @@ service cloud.firestore {
         && (!('phone' in incoming(request)) || (incoming(request).phone is string && incoming(request).phone.size() <= 50))
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow update: if isValidId(clientId)
+      allow update: if isUserActive()
+        && (isAdmin() || hasPermission('manageClients'))
+        && isValidId(clientId)
         && incoming(request).name is string 
         && incoming(request).name.size() > 0 
         && incoming(request).name.size() <= 128
@@ -111,13 +155,15 @@ service cloud.firestore {
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && isCreatedAtImmutable(request, resource)
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow delete: if isValidId(clientId);
+      allow delete: if isUserActive() && (isAdmin() || hasPermission('manageClients')) && isValidId(clientId);
     }
 
     // 4. Sellers
     match /sellers/{sellerId} {
-      allow read: if true;
-      allow create: if isValidId(sellerId)
+      allow read: if isUserActive();
+      allow create: if isUserActive()
+        && (isAdmin() || hasPermission('manageSellers'))
+        && isValidId(sellerId)
         && incoming(request).name is string 
         && incoming(request).name.size() > 0 
         && incoming(request).name.size() <= 128
@@ -125,7 +171,9 @@ service cloud.firestore {
         && (!('phone' in incoming(request)) || (incoming(request).phone is string && incoming(request).phone.size() <= 50))
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow update: if isValidId(sellerId)
+      allow update: if isUserActive()
+        && (isAdmin() || hasPermission('manageSellers'))
+        && isValidId(sellerId)
         && incoming(request).name is string 
         && incoming(request).name.size() > 0 
         && incoming(request).name.size() <= 128
@@ -134,13 +182,15 @@ service cloud.firestore {
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && isCreatedAtImmutable(request, resource)
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow delete: if isValidId(sellerId);
+      allow delete: if isUserActive() && (isAdmin() || hasPermission('manageSellers')) && isValidId(sellerId);
     }
 
     // 5. Inventory
     match /inventory/{rollId} {
-      allow read: if true;
-      allow create: if isValidId(rollId)
+      allow read: if isUserActive();
+      allow create: if isUserActive()
+        && (isAdmin() || hasPermission('inventoryAdd') || hasPermission('inventoryBulkImport'))
+        && isValidId(rollId)
         && incoming(request).rollNumber is string 
         && incoming(request).rollNumber.size() > 0 
         && incoming(request).rollNumber.size() <= 100
@@ -162,7 +212,9 @@ service cloud.firestore {
         && (!('appVersion' in incoming(request)) || (incoming(request).appVersion is string && incoming(request).appVersion.size() <= 50))
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow update: if isValidId(rollId)
+      allow update: if isUserActive()
+        && (isAdmin() || hasPermission('inventoryAdjust') || hasPermission('packingListCreate'))
+        && isValidId(rollId)
         && incoming(request).rollNumber is string 
         && incoming(request).rollNumber.size() > 0 
         && incoming(request).rollNumber.size() <= 100
@@ -185,13 +237,15 @@ service cloud.firestore {
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && isCreatedAtImmutable(request, resource)
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow delete: if isValidId(rollId);
+      allow delete: if isUserActive() && (isAdmin() || hasPermission('inventoryDelete')) && isValidId(rollId);
     }
 
     // 6. Packing Lists
     match /packinglists/{packingListId} {
-      allow read: if true;
-      allow create: if isValidId(packingListId)
+      allow read: if isUserActive() && (isAdmin() || hasPermission('packingListHistory') || hasPermission('packingListCreate'));
+      allow create: if isUserActive()
+        && (isAdmin() || hasPermission('packingListCreate'))
+        && isValidId(packingListId)
         && incoming(request).packingListNo is string 
         && incoming(request).packingListNo.size() > 0 
         && incoming(request).packingListNo.size() <= 50
@@ -216,7 +270,9 @@ service cloud.firestore {
         && (!('appVersion' in incoming(request)) || (incoming(request).appVersion is string && incoming(request).appVersion.size() <= 50))
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow update: if isValidId(packingListId)
+      allow update: if isUserActive()
+        && (isAdmin() || hasPermission('packingListCancel'))
+        && isValidId(packingListId)
         && incoming(request).packingListNo is string 
         && incoming(request).packingListNo.size() > 0 
         && incoming(request).packingListNo.size() <= 50
@@ -243,13 +299,15 @@ service cloud.firestore {
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && isCreatedAtImmutable(request, resource)
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow delete: if isValidId(packingListId);
+      allow delete: if isUserActive() && (isAdmin() || hasPermission('packingListCancel')) && isValidId(packingListId);
     }
 
     // 7. Sales Orders (Ficha de Venta / Orden de Venta)
     match /sales_orders/{orderId} {
-      allow read: if true;
-      allow create: if isValidId(orderId)
+      allow read: if isUserActive() && (isAdmin() || hasPermission('salesOrdersView') || hasPermission('salesOrdersCreate'));
+      allow create: if isUserActive()
+        && (isAdmin() || hasPermission('salesOrdersCreate'))
+        && isValidId(orderId)
         && incoming(request).orderNo is string
         && incoming(request).orderNo.size() <= 50
         && incoming(request).clientName is string
@@ -281,7 +339,9 @@ service cloud.firestore {
         && (!('appVersion' in incoming(request)) || (incoming(request).appVersion is string && incoming(request).appVersion.size() <= 50))
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow update: if isValidId(orderId)
+      allow update: if isUserActive()
+        && (isAdmin() || hasPermission('salesOrdersCreate'))
+        && isValidId(orderId)
         && incoming(request).orderNo is string
         && incoming(request).orderNo.size() <= 50
         && incoming(request).orderNo == resource.data.orderNo
@@ -315,66 +375,79 @@ service cloud.firestore {
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && isCreatedAtImmutable(request, resource)
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow delete: if isValidId(orderId);
+      allow delete: if isUserActive() && (isAdmin() || hasPermission('salesOrdersCreate')) && isValidId(orderId);
     }
 
     // 8. Counters (Atomic sequence numbering)
     match /counters/{counterId} {
-      allow read: if true;
-      allow create: if isValidId(counterId)
+      allow read: if isUserActive();
+      allow create: if isUserActive()
+        && isValidId(counterId)
         && (incoming(request).currentValue is int || incoming(request).currentValue is float || incoming(request).currentValue is number)
         && incoming(request).currentValue >= 0
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
-      allow update: if isValidId(counterId)
+      allow update: if isUserActive()
+        && isValidId(counterId)
         && (incoming(request).currentValue is int || incoming(request).currentValue is float || incoming(request).currentValue is number)
         && incoming(request).currentValue >= resource.data.currentValue
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
       allow delete: if false;
     }
 
-    // 9. Users (User accounts with salted SHA-256 hashed passwords & RBAC permissions)
+    // 9. Users (User accounts with RBAC permissions in Firestore)
+    // Only admins can create or delete users.
+    // Non-admin users cannot modify their own role, permissions, status or mustChangePassword.
     match /users/{userId} {
-      allow read: if true;
-      allow create: if isValidId(userId)
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isUserActive());
+      allow create: if isAuthenticated() && (
+        isAdmin() || 
+        (request.auth.uid == userId && request.auth.token.email == 'paulcalebfs123@gmail.com')
+      )
+        && isValidId(userId)
         && incoming(request).name is string
         && incoming(request).name.size() > 0
         && incoming(request).name.size() <= 128
         && incoming(request).email is string
         && incoming(request).email.size() >= 3
         && incoming(request).email.size() <= 128
-        && incoming(request).passwordHash is string
-        && incoming(request).passwordHash.size() > 0
-        && incoming(request).passwordHash.size() <= 256
-        && incoming(request).salt is string
-        && incoming(request).salt.size() > 0
-        && incoming(request).salt.size() <= 128
         && incoming(request).role in ['admin', 'almacen', 'vendedor', 'supervisor', 'custom']
         && incoming(request).status in ['active', 'inactive']
         && incoming(request).permissions is map
+        && (!('mustChangePassword' in incoming(request)) || incoming(request).mustChangePassword is bool)
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100))
         && (!('lastLoginAt' in incoming(request)) || (incoming(request).lastLoginAt is string && incoming(request).lastLoginAt.size() <= 100));
-      allow update: if isValidId(userId)
+      allow update: if isAuthenticated()
+        && isValidId(userId)
+        && (
+          isAdmin() || 
+          (
+            isUserActive()
+            && request.auth.uid == userId
+            && incoming(request).role == resource.data.role
+            && incoming(request).permissions == resource.data.permissions
+            && incoming(request).status == resource.data.status
+            && (
+              incoming(request).mustChangePassword == resource.data.mustChangePassword
+              || (resource.data.mustChangePassword == true && incoming(request).mustChangePassword == false)
+            )
+          )
+        )
         && incoming(request).name is string
         && incoming(request).name.size() > 0
         && incoming(request).name.size() <= 128
         && incoming(request).email is string
         && incoming(request).email.size() >= 3
         && incoming(request).email.size() <= 128
-        && incoming(request).passwordHash is string
-        && incoming(request).passwordHash.size() > 0
-        && incoming(request).passwordHash.size() <= 256
-        && incoming(request).salt is string
-        && incoming(request).salt.size() > 0
-        && incoming(request).salt.size() <= 128
         && incoming(request).role in ['admin', 'almacen', 'vendedor', 'supervisor', 'custom']
         && incoming(request).status in ['active', 'inactive']
         && incoming(request).permissions is map
+        && (!('mustChangePassword' in incoming(request)) || incoming(request).mustChangePassword is bool)
         && (!('createdAt' in incoming(request)) || (incoming(request).createdAt is string && incoming(request).createdAt.size() <= 100))
         && isCreatedAtImmutable(request, resource)
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100))
         && (!('lastLoginAt' in incoming(request)) || (incoming(request).lastLoginAt is string && incoming(request).lastLoginAt.size() <= 100));
-      allow delete: if isValidId(userId);
+      allow delete: if isAdmin() && isValidId(userId) && userId != request.auth.uid;
     }
   }
 }

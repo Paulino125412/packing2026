@@ -54,6 +54,8 @@ export function buildFullFiscalAddress(
   return `${addr} - ${ubigeoParts.join(' - ')}`;
 }
 
+import { auth } from '../firebase';
+
 export async function lookupRucOrDni(number: string): Promise<SunatQueryResult> {
   const cleanNumber = number.trim().replace(/\D/g, '');
 
@@ -65,13 +67,13 @@ export async function lookupRucOrDni(number: string): Promise<SunatQueryResult> 
     return { success: false, error: 'El RUC debe tener 11 dígitos o el DNI 8 dígitos.' };
   }
 
-  // 1. Try our Express backend API endpoint first (Bypasses CORS completely)
+  // 1. Try our Express backend API endpoint with verified Firebase Bearer ID token
   try {
-    const sessionData = localStorage.getItem('texflow_auth_session') || '';
+    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
     const apiRes = await fetch(`/api/sunat/${cleanNumber}`, {
       headers: {
         'Accept': 'application/json',
-        'x-auth-session': sessionData
+        ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
       }
     });
     if (apiRes.ok) {

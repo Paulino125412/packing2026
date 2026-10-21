@@ -1,6 +1,3 @@
-import html2canvas from 'html2canvas-pro';
-import { jsPDF } from 'jspdf';
-
 export interface GeneratePdfOptions {
   filename?: string;
   marginMm?: number;
@@ -238,10 +235,17 @@ export async function generatePdfFromElement(
 
   wrapper.appendChild(clone);
   document.body.appendChild(wrapper);
-
   let canvas: HTMLCanvasElement | null = null;
 
   try {
+    // Dynamic import to prevent bundling jspdf and html2canvas into main initial vendor bundle
+    const [html2canvasModule, jspdfModule] = await Promise.all([
+      import('html2canvas-pro'),
+      import('jspdf')
+    ]);
+    const html2canvas = html2canvasModule.default;
+    const { jsPDF } = jspdfModule;
+
     // Render element to high-resolution canvas using html2canvas-pro
     // allowTaint MUST be false so canvas.toDataURL() never throws SecurityError
     canvas = await html2canvas(clone, {

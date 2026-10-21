@@ -400,6 +400,9 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 
 // Seed data function to populate initial resources if database is empty
 export async function seedDatabaseIfEmpty() {
+  if (!auth.currentUser) {
+    return;
+  }
   try {
     const providersCol = collection(db, 'providers');
     let providersSnapshot;
@@ -408,6 +411,10 @@ export async function seedDatabaseIfEmpty() {
     } catch (err: any) {
       if (err?.code === 'unavailable' || String(err).includes('offline') || String(err).includes('unavailable')) {
         console.warn('Firestore is currently in offline mode; skipping cloud seeding check.');
+        return;
+      }
+      if (err?.code === 'permission-denied') {
+        console.warn('Permission denied checking providers for seeding (non-admin role); skipping.');
         return;
       }
       handleFirestoreError(err, OperationType.GET, 'providers');
@@ -514,10 +521,13 @@ export async function seedDatabaseIfEmpty() {
           appVersion: '2.6r'
         });
       }
-      
       console.log('Database successfully seeded.');
     }
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'permission-denied') {
+      console.warn('Permisos insuficientes para ejecutar seeding en Firestore; omitiendo.');
+      return;
+    }
     handleFirestoreError(error, OperationType.WRITE, 'seeding');
   }
 }

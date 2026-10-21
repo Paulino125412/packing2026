@@ -1,16 +1,31 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { 
   collection, 
   doc, 
+  getDoc, 
   getDocs, 
   setDoc, 
   updateDoc, 
   deleteDoc, 
-  onSnapshot 
+  onSnapshot,
+  query,
+  where
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { 
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  updatePassword,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+  onAuthStateChanged
+} from 'firebase/auth';
+import { initializeApp, getApps } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { db, auth } from '../firebase';
+import firebaseConfig from '../../firebase-applet-config.json';
 import { UserProfile, UserPermissions, UserRole } from '../types';
-import { hashPassword, verifyPassword, verifyPasswordWithMigration } from '../utils/crypto';
+import { verifyPasswordWithMigration } from '../utils/crypto';
 import { ROLE_PRESETS } from '../utils/roles';
 
 interface AuthContextType {
@@ -18,7 +33,7 @@ interface AuthContextType {
   isLoading: boolean;
   usersList: UserProfile[];
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
   hasPermission: (permissionKey: keyof UserPermissions) => boolean;
   createUser: (data: {
     name: string;
@@ -42,155 +57,140 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const LOCAL_STORAGE_SESSION_KEY = 'texflow_auth_session';
-const LOCAL_STORAGE_USERS_KEY = 'texflow_local_users';
 const SUPER_ADMIN_EMAIL = 'paulcalebfs123@gmail.com';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
-    try {
-      const saved = localStorage.getItem(LOCAL_STORAGE_SESSION_KEY);
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
-
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
-  const [mustChangePassword, setMustChangePassword] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem(LOCAL_STORAGE_SESSION_KEY);
-      if (saved) {
-        const u = JSON.parse(saved) as UserProfile;
-        return !!u.mustChangePassword;
-      }
-    } catch {
-      // fallback
-    }
-    return false;
-  });
+  const [mustChangePassword, setMustChangePassword] = useState<boolean>(false);
 
-  // Guardar sesión en localStorage
-  const saveSession = (user: UserProfile | null) => {
-    setCurrentUser(user);
-    if (user) {
-      localStorage.setItem(LOCAL_STORAGE_SESSION_KEY, JSON.stringify(user));
-      setMustChangePassword(!!user.mustChangePassword);
-    } else {
-      localStorage.removeItem(LOCAL_STORAGE_SESSION_KEY);
-      setMustChangePassword(false);
-      sessionStorage.removeItem('texflow_must_change_password');
-    }
-  };
-
-  // Verificar estado de cambio obligatorio de contraseña en base a la cuenta activa
+  // 1. Escuchar cambios de estado en Firebase Auth y sincronizar perfil desde Firestore
   useEffect(() => {
-    if (currentUser) {
-      if (currentUser.mustChangePassword) {
-        setMustChangePassword(true);
-      } else {
-        // Validación adicional por seguridad
-        verifyPassword('admin123', currentUser.salt, currentUser.passwordHash)
-          .then((isDefault) => {
-            if (isDefault) {
-              setMustChangePassword(true);
+    let unsubscribeDoc: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (unsubscribeDoc) {
+        unsubscribeDoc();
+        unsubscribeDoc = null;
+      }
+
+      if (firebaseUser) {
+        try {
+          const userDocRef = doc(db, 'users', firebaseUser.uid);
+          
+          unsubscribeDoc = onSnapshot(userDocRef, async (docSnap) => {
+            if (docSnap.exists()) {
+              const data = docSnap.data();
+              const profile: UserProfile = {
+                id: docSnap.id,
+                name: data.name || firebaseUser.displayName || 'Usuario',
+                email: (data.email || firebaseUser.email || '').toLowerCase(),
+                role: data.role || 'custom',
+                status: data.status || 'active',
+                permissions: data.permissions || { ...ROLE_PRESETS.almacen.permissions },
+                createdAt: data.createdAt || new Date().toISOString(),
+                updatedAt: data.updatedAt,
+                lastLoginAt: data.lastLoginAt,
+                mustChangePassword: data.mustChangePassword === true
+              };
+
+              // Si el usuario está inactivo, forzar cierre de sesión
+              if (profile.status === 'inactive') {
+                await signOut(auth);
+                setCurrentUser(null);
+                setMustChangePassword(false);
+                setIsLoading(false);
+                return;
+              }
+
+              setCurrentUser(profile);
+              setMustChangePassword(profile.mustChangePassword === true);
+            } else {
+              // Si aún no existe el documento con el uid (ej. durante migración), buscar por email
+              const q = query(collection(db, 'users'), where('email', '==', (firebaseUser.email || '').toLowerCase()));
+              const querySnap = await getDocs(q);
+              if (!querySnap.empty) {
+                const matched = querySnap.docs[0];
+                const data = matched.data();
+                const profile: UserProfile = {
+                  id: firebaseUser.uid,
+                  name: data.name || 'Usuario',
+                  email: (firebaseUser.email || '').toLowerCase(),
+                  role: data.role || 'custom',
+                  status: data.status || 'active',
+                  permissions: data.permissions || { ...ROLE_PRESETS.almacen.permissions },
+                  createdAt: data.createdAt || new Date().toISOString(),
+                  updatedAt: data.updatedAt,
+                  lastLoginAt: data.lastLoginAt,
+                  mustChangePassword: data.mustChangePassword === true
+                };
+
+                // Migrar documento a la clave UID
+                await setDoc(doc(db, 'users', firebaseUser.uid), profile);
+                if (matched.id !== firebaseUser.uid) {
+                  await deleteDoc(doc(db, 'users', matched.id));
+                }
+
+                setCurrentUser(profile);
+                setMustChangePassword(profile.mustChangePassword === true);
+              }
             }
-          })
-          .catch(() => {});
+            setIsLoading(false);
+          }, (err) => {
+            console.warn('Error al escuchar documento de usuario:', err);
+            setIsLoading(false);
+          });
+        } catch (err) {
+          console.error('Error al inicializar sesión de usuario:', err);
+          setIsLoading(false);
+        }
+      } else {
+        setCurrentUser(null);
+        setMustChangePassword(false);
+        setIsLoading(false);
       }
-    } else {
-      setMustChangePassword(false);
-    }
-  }, [currentUser]);
+    });
 
-  // Inicializar y asegurar que el Super Admin exista
-  const ensureSuperAdminExists = useCallback(async (existingUsers: UserProfile[]) => {
-    const adminExists = existingUsers.some(
-      u => u.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()
-    );
-
-    if (!adminExists) {
-      try {
-        const { hash, salt } = await hashPassword('admin123');
-        const adminDocId = 'admin_paulcalebfs123';
-        const newAdmin: UserProfile = {
-          id: adminDocId,
-          name: 'Paul Administrador',
-          email: SUPER_ADMIN_EMAIL,
-          passwordHash: hash,
-          salt: salt,
-          role: 'admin',
-          status: 'active',
-          permissions: { ...ROLE_PRESETS.admin.permissions },
-          createdAt: new Date().toISOString(),
-          mustChangePassword: true // Forzar cambio obligatorio en el primer acceso
-        };
-
-        await setDoc(doc(db, 'users', adminDocId), newAdmin);
-      } catch (err) {
-        console.warn('Error al auto-crear super admin en Firestore:', err);
-      }
-    }
+    return () => {
+      if (unsubscribeDoc) unsubscribeDoc();
+      unsubscribeAuth();
+    };
   }, []);
 
-  // Escuchar usuarios en tiempo real desde Firestore
+  // 2. Escuchar la colección de usuarios en tiempo real para el panel de administración
   useEffect(() => {
-    let unsubscribe: () => void = () => {};
-
-    try {
-      const usersColRef = collection(db, 'users');
-      unsubscribe = onSnapshot(usersColRef, async (snapshot) => {
-        const users: UserProfile[] = [];
-        snapshot.forEach((docSnap) => {
-          users.push({ id: docSnap.id, ...(docSnap.data() as Omit<UserProfile, 'id'>) });
-        });
-
-        // Guardar respaldo local
-        localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(users));
-        setUsersList(users);
-
-        // Si no hay usuarios o falta el admin, crearlo
-        await ensureSuperAdminExists(users);
-
-        // Si el usuario actual está logueado, sincronizar sus permisos y estado
-        setCurrentUser((prev) => {
-          if (!prev) return null;
-          const freshUser = users.find(u => u.id === prev.id || u.email.toLowerCase() === prev.email.toLowerCase());
-          if (!freshUser || freshUser.status === 'inactive') {
-            localStorage.removeItem(LOCAL_STORAGE_SESSION_KEY);
-            return null;
-          }
-          localStorage.setItem(LOCAL_STORAGE_SESSION_KEY, JSON.stringify(freshUser));
-          if (freshUser.mustChangePassword) {
-            setMustChangePassword(true);
-          }
-          return freshUser;
-        });
-
-        setIsLoading(false);
-      }, (error) => {
-        console.warn('Error al suscribir a colección users (Firestore offline o reglas):', error);
-        try {
-          const cached = localStorage.getItem(LOCAL_STORAGE_USERS_KEY);
-          if (cached) {
-            const parsed = JSON.parse(cached) as UserProfile[];
-            setUsersList(parsed);
-          }
-        } catch (e) {
-          console.error(e);
-        }
-        setIsLoading(false);
-      });
-    } catch (err) {
-      console.warn('Error inicializando listener de usuarios:', err);
-      setIsLoading(false);
+    if (!currentUser || (currentUser.role !== 'admin' && currentUser.email !== SUPER_ADMIN_EMAIL.toLowerCase())) {
+      return;
     }
 
-    return () => unsubscribe();
-  }, [ensureSuperAdminExists]);
+    const usersColRef = collection(db, 'users');
+    const unsubscribe = onSnapshot(usersColRef, (snapshot) => {
+      const list: UserProfile[] = [];
+      snapshot.forEach((d) => {
+        const data = d.data();
+        list.push({
+          id: d.id,
+          name: data.name || 'Sin Nombre',
+          email: (data.email || '').toLowerCase(),
+          role: data.role || 'custom',
+          status: data.status || 'active',
+          permissions: data.permissions || {},
+          createdAt: data.createdAt || new Date().toISOString(),
+          updatedAt: data.updatedAt,
+          lastLoginAt: data.lastLoginAt,
+          mustChangePassword: data.mustChangePassword === true
+        });
+      });
+      setUsersList(list);
+    }, (err) => {
+      console.warn('Error al sincronizar lista de usuarios:', err);
+    });
 
-  // Login con migración automática a PBKDF2 y verificación obligatoria de cambio de contraseña
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  // 3. Inicio de sesión con migración perezosa a Firebase Authentication
   const login = async (email: string, password: string): Promise<{ success: boolean; message?: string }> => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
@@ -199,134 +199,143 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Por favor ingresa tu correo y contraseña.' };
     }
 
-    let users = [...usersList];
+    // Paso A: Intentar login directo en Firebase Auth
+    try {
+      const userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+      const uid = userCred.user.uid;
 
-    if (users.length === 0) {
-      try {
-        const snap = await getDocs(collection(db, 'users'));
-        snap.forEach(d => users.push({ id: d.id, ...(d.data() as Omit<UserProfile, 'id'>) }));
-      } catch {
-        const local = localStorage.getItem(LOCAL_STORAGE_USERS_KEY);
-        if (local) {
-          users = JSON.parse(local);
+      // Obtener o verificar perfil en Firestore
+      const userDocRef = doc(db, 'users', uid);
+      const docSnap = await getDoc(userDocRef);
+
+      let profileData: any = docSnap.exists() ? docSnap.data() : null;
+
+      if (!profileData) {
+        // Buscar por email si el UID cambió
+        const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
+        const qSnap = await getDocs(q);
+        if (!qSnap.empty) {
+          const oldDoc = qSnap.docs[0];
+          profileData = oldDoc.data();
+          // Migrar al UID
+          await setDoc(userDocRef, { ...profileData, id: uid });
+          if (oldDoc.id !== uid) {
+            await deleteDoc(doc(db, 'users', oldDoc.id));
+          }
         }
       }
-    }
 
-    // Inicializar superadmin en caso de primer arranque offline
-    if (users.length === 0 && cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase()) {
-      const { hash, salt } = await hashPassword('admin123');
-      const seededAdmin: UserProfile = {
-        id: 'admin_paulcalebfs123',
-        name: 'Paul Administrador',
-        email: SUPER_ADMIN_EMAIL,
-        passwordHash: hash,
-        salt,
-        role: 'admin',
-        status: 'active',
-        permissions: { ...ROLE_PRESETS.admin.permissions },
-        createdAt: new Date().toISOString(),
-        mustChangePassword: true
-      };
-      users = [seededAdmin];
+      // Validar cuenta inactiva
+      if (profileData && profileData.status === 'inactive') {
+        await signOut(auth);
+        return { success: false, message: 'Esta cuenta ha sido desactivada por el administrador.' };
+      }
+
+      // Validar restricción de horario (6:00 AM a 8:00 PM) para no-admin
+      const isAdmin = profileData?.role === 'admin' || cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase();
+      if (!isAdmin) {
+        const currentHour = new Date().getHours();
+        if (currentHour < 6 || currentHour >= 20) {
+          await signOut(auth);
+          return { 
+            success: false, 
+            message: 'Acceso denegado: El horario permitido para tu rol es de 6:00 AM a 8:00 PM. Fuera de este horario solo el Administrador tiene acceso.' 
+          };
+        }
+      }
+
+      // Actualizar lastLoginAt
       try {
-        await setDoc(doc(db, 'users', seededAdmin.id), seededAdmin);
-      } catch (err) {
-        console.warn('Guardado offline del seed admin:', err);
+        await updateDoc(userDocRef, { lastLoginAt: new Date().toISOString() });
+      } catch {}
+
+      return { success: true };
+    } catch (firebaseErr: any) {
+      // Paso B: Si falló en Firebase Auth, verificar si es un usuario legado para migración perezosa
+      const errorCode = firebaseErr?.code;
+      const isUserNotFound = errorCode === 'auth/user-not-found' || errorCode === 'auth/invalid-credential';
+
+      if (isUserNotFound) {
+        try {
+          // 1. Intentar migración segura en el backend
+          const migRes = await fetch('/api/auth/migrate-legacy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: cleanEmail, password: cleanPassword })
+          });
+          const migData = await migRes.json().catch(() => null);
+
+          if (migRes.ok && migData?.success) {
+            // Autenticar en Firebase Auth tras la migración exitosa
+            await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+            return { success: true };
+          } else if (migData && migData.message && migRes.status !== 500) {
+            return { success: false, message: migData.message };
+          }
+        } catch (backendErr) {
+          console.warn('Backend migration endpoint unavailable, trying direct client bootstrap:', backendErr);
+        }
+
+        // 2. Si el backend no estaba disponible, verificar superadmin inicial o credenciales
+        if (cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase() && cleanPassword === 'admin123') {
+          try {
+            let userCred;
+            try {
+              userCred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+            } catch (err: any) {
+              if (err.code === 'auth/email-already-in-use') {
+                userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
+              } else {
+                throw err;
+              }
+            }
+
+            const newUid = userCred.user.uid;
+            const superAdminProfile: UserProfile = {
+              id: newUid,
+              name: 'Paul Administrador',
+              email: SUPER_ADMIN_EMAIL,
+              role: 'admin',
+              status: 'active',
+              permissions: { ...ROLE_PRESETS.admin.permissions },
+              mustChangePassword: true,
+              createdAt: new Date().toISOString(),
+              lastLoginAt: new Date().toISOString()
+            };
+
+            await setDoc(doc(db, 'users', newUid), superAdminProfile);
+            return { success: true };
+          } catch (initAdminErr: any) {
+            console.error('Error al inicializar SuperAdmin:', initAdminErr);
+          }
+        }
       }
-      localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(users));
-      setUsersList(users);
+
+      return { success: false, message: 'Credenciales inválidas o cuenta no registrada.' };
     }
-
-    const foundUser = users.find(u => u.email.trim().toLowerCase() === cleanEmail);
-
-    if (!foundUser) {
-      return { success: false, message: 'No existe una cuenta registrada con este correo electrónico.' };
-    }
-
-    if (foundUser.status === 'inactive') {
-      return { success: false, message: 'Esta cuenta ha sido desactivada por el administrador. Contacta con soporte.' };
-    }
-
-    // Restricción de horario laboral para no-admin (6:00 AM a 8:00 PM)
-    const isAdmin = foundUser.role === 'admin' || foundUser.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase();
-    if (!isAdmin) {
-      const currentHour = new Date().getHours();
-      if (currentHour < 6 || currentHour >= 20) {
-        return { 
-          success: false, 
-          message: 'Acceso denegado: El horario permitido para tu rol es de 6:00 AM a 8:00 PM. Fuera de este horario solo el Administrador tiene acceso.' 
-        };
-      }
-    }
-
-    // Verificación criptográfica con detección de hashes heredados (SHA-256 vs PBKDF2)
-    const { isValid, needsRehash } = await verifyPasswordWithMigration(cleanPassword, foundUser.salt, foundUser.passwordHash);
-
-    if (!isValid) {
-      return { success: false, message: 'Contraseña incorrecta. Inténtalo de nuevo.' };
-    }
-
-    let finalHash = foundUser.passwordHash;
-    let finalSalt = foundUser.salt;
-
-    // Migración silenciosa automática a PBKDF2 (100,000 iteraciones) al primer login exitoso
-    if (needsRehash) {
-      try {
-        const upgraded = await hashPassword(cleanPassword);
-        finalHash = upgraded.hash;
-        finalSalt = upgraded.salt;
-        await updateDoc(doc(db, 'users', foundUser.id), {
-          passwordHash: finalHash,
-          salt: finalSalt,
-          updatedAt: new Date().toISOString()
-        });
-      } catch (err) {
-        console.warn('Error durante auto-migración de hash a PBKDF2:', err);
-      }
-    }
-
-    const isDefaultKey = cleanPassword === 'admin123';
-    const forceChange = !!foundUser.mustChangePassword || isDefaultKey;
-
-    const updatedUser: UserProfile = {
-      ...foundUser,
-      passwordHash: finalHash,
-      salt: finalSalt,
-      lastLoginAt: new Date().toISOString(),
-      mustChangePassword: forceChange
-    };
-
-    try {
-      await updateDoc(doc(db, 'users', foundUser.id), {
-        lastLoginAt: updatedUser.lastLoginAt,
-        mustChangePassword: forceChange
-      });
-    } catch {
-      // Ignorar si offline
-    }
-
-    setMustChangePassword(forceChange);
-    saveSession(updatedUser);
-    return { success: true };
   };
 
-  // Logout
-  const logout = () => {
-    saveSession(null);
+  // 4. Logout
+  const logout = async () => {
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.warn('Error en signOut:', e);
+    }
+    setCurrentUser(null);
     setMustChangePassword(false);
   };
 
-  // Verificación de permisos
+  // 5. Verificación de permisos
   const hasPermission = (permissionKey: keyof UserPermissions): boolean => {
     if (!currentUser) return false;
-    if (currentUser.role === 'admin' || currentUser.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+    if (currentUser.role === 'admin' || currentUser.email === SUPER_ADMIN_EMAIL.toLowerCase()) {
       return true;
     }
     return !!currentUser.permissions?.[permissionKey];
   };
 
-  // Crear nuevo usuario (con obligación de cambio de contraseña en su primer acceso)
+  // 6. Crear usuario en Firebase Auth + Firestore sin desconectar al administrador
   const createUser = async (data: {
     name: string;
     email: string;
@@ -346,46 +355,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'La contraseña debe tener al menos 6 caracteres.' };
     }
 
-    const exists = usersList.some(u => u.email.toLowerCase() === cleanEmail);
-    if (exists) {
-      return { success: false, message: `Ya existe un usuario registrado con el correo ${cleanEmail}.` };
-    }
+    // Instancia secundaria de Firebase App para registrar al nuevo usuario sin cerrar sesión del admin
+    const secondaryAppName = `user_creator_${Date.now()}`;
+    const secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
+    const secondaryAuth = getAuth(secondaryApp);
 
     try {
-      const { hash, salt } = await hashPassword(data.password);
-      const newId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const userCred = await createUserWithEmailAndPassword(secondaryAuth, cleanEmail, data.password);
+      const newUid = userCred.user.uid;
+      await signOut(secondaryAuth);
 
-      const newUser: UserProfile = {
-        id: newId,
+      const newProfile: UserProfile = {
+        id: newUid,
         name: cleanName,
         email: cleanEmail,
-        passwordHash: hash,
-        salt,
         role: data.role,
         status: 'active',
         permissions: data.permissions,
-        createdAt: new Date().toISOString(),
-        mustChangePassword: data.mustChangePassword !== undefined ? data.mustChangePassword : true
+        mustChangePassword: data.mustChangePassword !== undefined ? data.mustChangePassword : true,
+        createdAt: new Date().toISOString()
       };
 
-      await setDoc(doc(db, 'users', newId), newUser);
-
-      const updatedList = [...usersList, newUser];
-      setUsersList(updatedList);
-      localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(updatedList));
+      // Guardar perfil en Firestore
+      await setDoc(doc(db, 'users', newUid), newProfile);
 
       return { success: true };
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Error desconocido al registrar usuario';
-      return { success: false, message: errorMsg };
+    } catch (err: any) {
+      const msg = err.code === 'auth/email-already-in-use' 
+        ? `El correo ${cleanEmail} ya se encuentra registrado en el sistema de autenticación.`
+        : (err.message || 'Error al registrar usuario.');
+      return { success: false, message: msg };
     }
   };
 
-  // Modificar usuario existente
+  // 7. Modificar usuario existente
   const updateUser = async (
     id: string,
     updates: Partial<Omit<UserProfile, 'passwordHash' | 'salt'>>,
-    newPassword?: string,
+    _newPassword?: string,
     forcePasswordChangeOnNextLogin?: boolean
   ): Promise<{ success: boolean; message?: string }> => {
     try {
@@ -399,30 +406,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         payload.mustChangePassword = forcePasswordChangeOnNextLogin;
       }
 
-      if (newPassword && newPassword.trim()) {
-        if (newPassword.trim().length < 6) {
-          return { success: false, message: 'La nueva contraseña debe tener al menos 6 caracteres.' };
-        }
-        const { hash, salt } = await hashPassword(newPassword.trim());
-        payload.passwordHash = hash;
-        payload.salt = salt;
-        // Si el administrador asignó una nueva clave temporal, forzar cambio
-        if (forcePasswordChangeOnNextLogin === undefined) {
-          payload.mustChangePassword = true;
-        }
-      }
-
       await updateDoc(userRef, payload);
-
-      if (currentUser?.id === id) {
-        saveSession({
-          ...currentUser,
-          ...updates,
-          ...(payload.passwordHash ? { passwordHash: payload.passwordHash as string, salt: payload.salt as string } : {}),
-          ...(payload.mustChangePassword !== undefined ? { mustChangePassword: !!payload.mustChangePassword } : {})
-        });
-      }
-
       return { success: true };
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Error al actualizar usuario';
@@ -430,12 +414,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Activar / Desactivar estado de usuario
+  // 8. Activar o desactivar usuario
   const toggleUserStatus = async (id: string): Promise<{ success: boolean; message?: string }> => {
     const target = usersList.find(u => u.id === id);
     if (!target) return { success: false, message: 'Usuario no encontrado' };
 
-    if (target.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+    if (target.email === SUPER_ADMIN_EMAIL.toLowerCase()) {
       return { success: false, message: 'No es posible desactivar la cuenta del Administrador Principal.' };
     }
 
@@ -452,20 +436,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Eliminar usuario
+  // 9. Eliminar usuario
   const deleteUser = async (id: string): Promise<{ success: boolean; message?: string }> => {
     const target = usersList.find(u => u.id === id);
     if (!target) return { success: false, message: 'Usuario no encontrado' };
 
-    if (target.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+    if (target.email === SUPER_ADMIN_EMAIL.toLowerCase()) {
       return { success: false, message: 'No es posible eliminar la cuenta del Administrador Principal.' };
     }
 
     try {
       await deleteDoc(doc(db, 'users', id));
-      const filtered = usersList.filter(u => u.id !== id);
-      setUsersList(filtered);
-      localStorage.setItem(LOCAL_STORAGE_USERS_KEY, JSON.stringify(filtered));
       return { success: true };
     } catch (err: unknown) {
       const errorMsg = err instanceof Error ? err.message : 'Error al eliminar usuario';
@@ -473,13 +454,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Cambiar propia contraseña (valida que no sea repetida ni por defecto y elimina el bloqueo obligatorio)
+  // 10. Cambiar propia contraseña usando Firebase Auth
   const changeMyPassword = async (currentPassword: string, newPassword: string): Promise<{ success: boolean; message?: string }> => {
-    if (!currentUser) return { success: false, message: 'No hay una sesión activa.' };
-
-    const isMatch = await verifyPassword(currentPassword, currentUser.salt, currentUser.passwordHash);
-    if (!isMatch) {
-      return { success: false, message: 'La contraseña actual no coincide.' };
+    const user = auth.currentUser;
+    if (!user || !user.email) {
+      return { success: false, message: 'No hay una sesión activa.' };
     }
 
     if (newPassword.trim().length < 6) {
@@ -495,30 +474,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { hash, salt } = await hashPassword(newPassword.trim());
-      
-      // Actualizar en base de datos Firestore
-      await updateDoc(doc(db, 'users', currentUser.id), {
-        passwordHash: hash,
-        salt: salt,
+      // Reautenticar para asegurar permiso de cambio de contraseña
+      const credential = EmailAuthProvider.credential(user.email, currentPassword.trim());
+      await reauthenticateWithCredential(user, credential);
+
+      // Actualizar en Firebase Auth
+      await updatePassword(user, newPassword.trim());
+
+      // Actualizar bandera en Firestore
+      await updateDoc(doc(db, 'users', user.uid), {
         mustChangePassword: false,
         updatedAt: new Date().toISOString()
       });
 
-      // Actualizar sesión persistente
-      saveSession({
-        ...currentUser,
-        passwordHash: hash,
-        salt: salt,
-        mustChangePassword: false
-      });
-
       setMustChangePassword(false);
-      sessionStorage.removeItem('texflow_must_change_password');
+      setCurrentUser(prev => prev ? { ...prev, mustChangePassword: false } : null);
 
       return { success: true };
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : 'Error al cambiar contraseña';
+    } catch (err: any) {
+      const errorMsg = err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential'
+        ? 'La contraseña actual no coincide.'
+        : (err.message || 'Error al cambiar contraseña en Firebase Auth.');
       return { success: false, message: errorMsg };
     }
   };
