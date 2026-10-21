@@ -428,11 +428,10 @@ export default function App() {
         return;
       }
 
-      // Safety timeout: if Firestore takes too long to load (e.g., initial DB setup latency),
-      // fallback to local storage so user doesn't get stuck on loading screen
+      // Aumentar el tiempo de espera de conexión a la nube a 30 segundos sin fallback automático agresivo
       timeoutId = setTimeout(() => {
-        triggerFallback("Firestore connection timeout (8 seconds)");
-      }, 8000);
+        triggerFallback("Firestore connection timeout (30 seconds)");
+      }, 30000);
 
       try {
         // Seed first to prevent empty dashboard
@@ -463,7 +462,11 @@ export default function App() {
         }, (error: any) => {
           console.error("Firestore Sellers error:", error);
           if (error?.code === 'permission-denied') {
-            triggerFallback("Sellers Permission Denied / Error");
+            if (isAdmin) {
+              setSellers(getLocalStorageCollection('sellers'));
+            } else {
+              triggerFallback("Sellers Permission Denied / Error");
+            }
           }
         });
         unsubs.push(unsubSellers);
@@ -475,7 +478,11 @@ export default function App() {
         }, (error: any) => {
           console.error("Firestore Providers error:", error);
           if (error?.code === 'permission-denied') {
-            triggerFallback("Providers Permission Denied / Error");
+            if (isAdmin) {
+              setProviders(getLocalStorageCollection('providers'));
+            } else {
+              triggerFallback("Providers Permission Denied / Error");
+            }
           }
         });
         unsubs.push(unsubProviders);
@@ -487,7 +494,11 @@ export default function App() {
         }, (error: any) => {
           console.error("Firestore Articles error:", error);
           if (error?.code === 'permission-denied') {
-            triggerFallback("Articles Permission Denied / Error");
+            if (isAdmin) {
+              setArticles(getLocalStorageCollection('articles'));
+            } else {
+              triggerFallback("Articles Permission Denied / Error");
+            }
           }
         });
         unsubs.push(unsubArticles);
@@ -499,7 +510,11 @@ export default function App() {
         }, (error: any) => {
           console.error("Firestore Packinglists error:", error);
           if (error?.code === 'permission-denied') {
-            triggerFallback("Packinglists Permission Denied / Error");
+            if (isAdmin) {
+              setPackingLists(getLocalStorageCollection('packinglists'));
+            } else {
+              triggerFallback("Packinglists Permission Denied / Error");
+            }
           }
         });
         unsubs.push(unsubPackingLists);
@@ -538,8 +553,13 @@ export default function App() {
         setInventory(list);
         setInventoryHasMore(list.length === inventoryLimit);
       },
-      (error) => {
+      (error: any) => {
         console.error("Firestore Inventory error:", error);
+        if (error?.code === 'permission-denied') {
+          if (isAdmin) {
+            setInventory(getLocalStorageCollection('inventory') as RollItem[]);
+          }
+        }
       }
     );
     return () => unsubInventory();
@@ -941,17 +961,19 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => {
-                setIsChangePasswordOpen(true);
-                setIsMobileMenuOpen(false);
-              }}
-              className="flex-1 py-1.5 px-2 bg-app-surface border border-app-border/60 hover:border-app-border rounded-xl text-[11px] font-medium text-app-text/80 hover:text-app-text flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
-            >
-              <Key size={12} />
-              <span>Clave</span>
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsChangePasswordOpen(true);
+                  setIsMobileMenuOpen(false);
+                }}
+                className="flex-1 py-1.5 px-2 bg-app-surface border border-app-border/60 hover:border-app-border rounded-xl text-[11px] font-medium text-app-text/80 hover:text-app-text flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              >
+                <Key size={12} />
+                <span>Clave</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -1380,17 +1402,19 @@ export default function App() {
                       </button>
                     )}
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsChangePasswordOpen(true);
-                        setIsUserMenuOpen(false);
-                      }}
-                      className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white transition-colors text-left cursor-pointer"
-                    >
-                      <Key size={14} className="text-amber-500 dark:text-amber-400" />
-                      <span>Cambiar mi contraseña</span>
-                    </button>
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsChangePasswordOpen(true);
+                          setIsUserMenuOpen(false);
+                        }}
+                        className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white transition-colors text-left cursor-pointer"
+                      >
+                        <Key size={14} className="text-amber-500 dark:text-amber-400" />
+                        <span>Cambiar mi contraseña</span>
+                      </button>
+                    )}
                   </div>
 
                   <div className="pt-1 border-t border-slate-100 dark:border-slate-800">

@@ -1573,16 +1573,13 @@ export default function PackingListForm({
             const counterData = counterSnap.data();
             const currentVal = Number(counterData?.currentValue) || 0;
             if (maxExistingNum >= currentVal) {
-              throw new Error("El contador está desfasado, avisa al administrador");
+              // Auto-sync counter to maxExistingNum + 1 instead of throwing error
+              nextValue = maxExistingNum + 1;
+            } else {
+              nextValue = currentVal + 1;
             }
-            nextValue = currentVal + 1;
           } else {
-            // Si el documento counters/packingListNo no existe en Firestore,
-            // verificar si ya existen packing lists previos
-            if (maxExistingNum > 0) {
-              throw new Error("El contador está desfasado, avisa al administrador");
-            }
-            nextValue = 1;
+            nextValue = maxExistingNum > 0 ? maxExistingNum + 1 : 1;
           }
 
           const assignedPackingListNo = `PL-${String(nextValue).padStart(4, '0')}`;

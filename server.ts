@@ -258,12 +258,9 @@ ensureAdminReady().catch((err) => {
 const migrationRateLimitIpMap = new Map<string, { count: number; resetTime: number }>();
 const migrationRateLimitEmailMap = new Map<string, { count: number; resetTime: number }>();
 
-// Helper to get Admin Firestore instance using named firestoreDatabaseId if configured
+// Helper to get Admin Firestore instance
 function getDb() {
-  // Apunta a la base de datos con nombre de la app (firestoreDatabaseId) en lugar de (default)
-  return (firebaseConfig as any).firestoreDatabaseId 
-    ? getAdminFirestore((firebaseConfig as any).firestoreDatabaseId) 
-    : getAdminFirestore();
+  return getAdminFirestore();
 }
 
 app.post("/api/auth/migrate-legacy", async (req, res) => {
@@ -325,7 +322,17 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
     const adminAuth = getAdminAuth();
 
     // 2. Search for legacy user in Firestore
-    const usersSnap = await firestore.collection('users').where('email', '==', cleanEmail).get();
+    let usersSnap;
+    try {
+      usersSnap = await firestore.collection('users').where('email', '==', cleanEmail).get();
+    } catch (fsErr: any) {
+      console.warn('Firestore query error in migrate-legacy:', fsErr?.message || fsErr);
+      return res.status(503).json({
+        success: false,
+        message: 'Servicio de autenticación no disponible temporalmente (Permisos de base de datos).'
+      });
+    }
+
     if (usersSnap.empty) {
       return res.status(401).json({ 
         success: false, 

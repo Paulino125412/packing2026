@@ -199,6 +199,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     // Paso A: Bypass directo de emergencia para superadministrador
     if (cleanEmail === 'paulcalebfs123@gmail.com') {
+      if (cleanPassword !== 'admin.2026') {
+        return { success: false, message: 'Contraseña incorrecta. La contraseña de administrador establecida es admin.2026' };
+      }
       const superAdminProfile: UserProfile = {
         id: 'admin_paulcalebfs123',
         name: 'Super Administrador',

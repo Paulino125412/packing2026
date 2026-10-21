@@ -20,26 +20,7 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-let dbInstance;
-try {
-  dbInstance = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      tabManager: persistentMultipleTabManager()
-    }),
-    experimentalForceLongPolling: true
-  }, firebaseConfig.firestoreDatabaseId);
-} catch (err) {
-  console.warn("Failed to initialize Firestore with multi-tab offline cache, falling back to standard initialization:", err);
-  try {
-    dbInstance = initializeFirestore(app, {
-      localCache: persistentLocalCache({}),
-      experimentalForceLongPolling: true
-    }, firebaseConfig.firestoreDatabaseId);
-  } catch (err2) {
-    console.warn("Failed to initialize Firestore with single-tab offline cache, falling back to standard getFirestore:", err2);
-    dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-  }
-}
+const dbInstance = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId || '(default)');
 
 export const db = dbInstance;
 export const auth = getAuth(app);
