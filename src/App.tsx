@@ -60,6 +60,8 @@ type AppTab = 'generate' | 'sales_order' | 'catalogs' | 'inventory' | 'history' 
 export default function App() {
   const toast = useToast();
   const { currentUser, isLoading: authLoading, logout, hasPermission, mustChangePassword } = useAuth();
+  const isSuperAdmin = currentUser?.email.trim().toLowerCase() === 'paulcalebfs123@gmail.com';
+  const isAdmin = currentUser?.role === 'admin' || isSuperAdmin;
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -96,10 +98,7 @@ export default function App() {
 
   // 4. Restricción de horario laboral (6:00 AM a 8:00 PM) para usuarios no administradores
   useEffect(() => {
-    if (!currentUser) return;
-    const isSuperAdmin = currentUser.email.trim().toLowerCase() === 'paulcalebfs123@gmail.com';
-    const isAdmin = currentUser.role === 'admin' || isSuperAdmin;
-    if (isAdmin) return;
+    if (!currentUser || isAdmin) return;
 
     const checkWorkingHours = () => {
       const currentHour = new Date().getHours();
@@ -118,8 +117,7 @@ export default function App() {
 
     // Monitorear cada 1 minuto (60,000 ms)
     const intervalId = setInterval(checkWorkingHours, 60000);
-    return () => clearInterval(intervalId);
-  }, [currentUser, logout, toast]);
+  }, [currentUser, isAdmin, logout, toast]);
 
   // 5. Cierre de sesión automático por inactividad (20 minutos continuos sin interacción)
   useEffect(() => {
@@ -674,6 +672,13 @@ export default function App() {
   };
 
   const handleDownloadBackup = () => {
+    if (!isAdmin) {
+      toast.error('Acceso denegado: Solo los administradores pueden descargar el respaldo completo de la base de datos.', {
+        title: 'Acceso Restringido'
+      });
+      return;
+    }
+
     const backupData = {
       backupDate: new Date().toISOString(),
       providers,
@@ -729,17 +734,17 @@ export default function App() {
         {/* Mobile Header with Brand & Close Button */}
         <div className="p-4 border-b border-app-border/40 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="bg-app-surface border border-app-border p-2 rounded-md text-app-text shadow-xs shrink-0">
-              <Warehouse size={18} className="stroke-[1.5]" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 text-white shadow-md shadow-indigo-500/20 flex items-center justify-center shrink-0">
+              <Warehouse size={19} className="stroke-[1.8]" />
             </div>
             <div className="min-w-0">
-              <h1 className="text-xs font-bold tracking-wider text-app-text uppercase leading-none truncate">Control Almacén</h1>
-              <span className="text-[9px] text-app-text/60 font-mono uppercase tracking-widest mt-1 block truncate">WMS Enterprise</span>
+              <h1 className="text-sm font-bold tracking-tight text-app-text leading-tight truncate">Control Almacén</h1>
+              <span className="text-[10px] text-app-text/60 font-mono tracking-wider mt-0.5 block truncate">WMS Enterprise</span>
             </div>
           </div>
           <button
             onClick={() => setIsMobileMenuOpen(false)}
-            className="p-2 hover:bg-app-surface border border-app-border/40 rounded-md text-app-text/70 hover:text-app-text transition cursor-pointer"
+            className="p-2 hover:bg-app-surface border border-app-border/40 rounded-xl text-app-text/70 hover:text-app-text transition cursor-pointer"
             title="Cerrar menú"
           >
             <X size={18} />
@@ -750,17 +755,17 @@ export default function App() {
         <div className="px-4 py-3 border-b border-app-border/25 bg-app-surface/20 flex flex-col gap-2 shrink-0">
           <button
             onClick={toggleTestMode}
-            className={`w-full py-2 px-3 rounded-md text-xs font-bold transition flex items-center justify-between cursor-pointer border ${
+            className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-between cursor-pointer border ${
               isTestMode
                 ? 'bg-amber-500 text-slate-950 border-amber-600 ring-2 ring-amber-400 font-black'
-                : 'bg-app-surface border-app-border text-app-text/80 hover:bg-app-bg'
+                : 'bg-app-surface border-app-border/60 text-app-text/80 hover:bg-app-bg'
             }`}
           >
             <span className="flex items-center gap-1.5">
               <span>🧪</span>
               <span className="uppercase tracking-wider">Modo Prueba</span>
             </span>
-            <span className={`text-[10px] px-2 py-0.5 rounded font-black uppercase ${
+            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black uppercase ${
               isTestMode ? 'bg-slate-950 text-amber-300 animate-pulse' : 'bg-app-border/50 text-app-text/60'
             }`}>
               {isTestMode ? 'ACTIVO (Quitar)' : 'OFF'}
@@ -770,13 +775,13 @@ export default function App() {
           <div className="flex items-center justify-between text-[11px] font-medium text-app-text/75">
             <span>Servidor de Datos:</span>
             {isLocal ? (
-              <span className="inline-flex items-center gap-1.5 text-app-primary font-semibold text-[10px] bg-app-primary/10 px-2 py-0.5 rounded border border-app-primary/20">
+              <span className="inline-flex items-center gap-1.5 text-app-primary font-semibold text-[10px] bg-app-primary/10 px-2 py-0.5 rounded-full border border-app-primary/20">
                 <span className="h-1.5 w-1.5 rounded-full bg-app-primary animate-pulse"></span>
                 Demo Local
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-app-secondary font-semibold text-[10px] bg-app-secondary/10 px-2 py-0.5 rounded border border-app-secondary/20">
-                <span className="h-1.5 w-1.5 rounded-full bg-app-secondary"></span>
+              <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                 Sincronizado
               </span>
             )}
@@ -789,17 +794,17 @@ export default function App() {
 
         {/* Mobile Nav Links */}
         <nav className="flex-1 min-h-0 p-3 space-y-1.5 overflow-y-auto">
-          <div className="text-[9px] font-bold text-app-text/50 uppercase tracking-widest px-2 mb-2">
+          <div className="text-[9px] font-bold text-app-text/50 uppercase tracking-widest px-2 mb-2 font-mono">
             Módulos del Sistema
           </div>
 
           {hasPermission('packingListCreate') && (
             <button
               onClick={() => handleTabChange('generate')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer min-h-[44px] ${
                 activeTab === 'generate'
-                  ? 'bg-app-primary text-white shadow-xs'
-                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
             >
               <FileText size={18} className={activeTab === 'generate' ? 'text-white' : 'text-app-text/60'} />
@@ -810,10 +815,10 @@ export default function App() {
           {(hasPermission('salesOrdersCreate') || hasPermission('salesOrdersView')) && (
             <button
               onClick={() => handleTabChange('sales_order')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer min-h-[44px] ${
                 activeTab === 'sales_order'
-                  ? 'bg-app-primary text-white shadow-xs'
-                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
             >
               <ClipboardList size={18} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/60'} />
@@ -824,10 +829,10 @@ export default function App() {
           {(hasPermission('manageArticles') || hasPermission('manageProviders') || hasPermission('manageClients') || hasPermission('manageSellers')) && (
             <button
               onClick={() => handleTabChange('catalogs')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer min-h-[44px] ${
                 activeTab === 'catalogs'
-                  ? 'bg-app-primary text-white shadow-xs'
-                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
             >
               <Settings size={18} className={activeTab === 'catalogs' ? 'text-white' : 'text-app-text/60'} />
@@ -838,10 +843,10 @@ export default function App() {
           {hasPermission('inventoryView') && (
             <button
               onClick={() => handleTabChange('inventory')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer min-h-[44px] ${
                 activeTab === 'inventory'
-                  ? 'bg-app-primary text-white shadow-xs'
-                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
             >
               <Warehouse size={18} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/60'} />
@@ -852,10 +857,10 @@ export default function App() {
           {hasPermission('packingListHistory') && (
             <button
               onClick={() => handleTabChange('history')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer min-h-[44px] ${
                 activeTab === 'history'
-                  ? 'bg-app-primary text-white shadow-xs'
-                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
             >
               <History size={18} className={activeTab === 'history' ? 'text-white' : 'text-app-text/60'} />
@@ -866,10 +871,10 @@ export default function App() {
           {(hasPermission('manageUsers') || currentUser?.role === 'admin') && (
             <button
               onClick={() => handleTabChange('users')}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-md text-xs font-semibold uppercase tracking-wider transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer min-h-[44px] ${
                 activeTab === 'users'
-                  ? 'bg-app-primary text-white shadow-xs'
-                  : 'text-app-text/75 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/75 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
             >
               <Users size={18} className={activeTab === 'users' ? 'text-white' : 'text-app-text/60'} />
@@ -880,13 +885,13 @@ export default function App() {
 
         {/* Mobile Quick Connection Action */}
         {isLocal && (
-          <div className="p-3 m-3 bg-app-primary/5 border border-app-primary/20 rounded-md text-xs text-app-text/80 flex flex-col gap-2 shrink-0">
+          <div className="p-3.5 m-3 bg-app-primary/5 border border-app-primary/20 rounded-xl text-xs text-app-text/80 flex flex-col gap-2 shrink-0">
             <p className="leading-tight text-[10px] text-app-primary">
               <strong>Modo Local Activo:</strong> Los datos se almacenan en este dispositivo.
             </p>
             <button 
               onClick={handleTryConnectCloud}
-              className="w-full py-2 bg-app-primary hover:bg-app-primary/90 text-white font-semibold rounded text-[11px] transition uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer min-h-[38px]"
+              className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-[11px] transition uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer min-h-[38px] shadow-sm"
             >
               <RefreshCw size={12} className="animate-spin-slow" />
               Sincronizar Nube
@@ -895,15 +900,15 @@ export default function App() {
         )}
 
         {/* Mobile User Profile Section */}
-        <div className="p-3.5 border-t border-app-border/45 bg-app-surface/20 shrink-0 space-y-2">
+        <div className="p-3.5 border-t border-app-border/40 bg-app-surface/30 shrink-0 space-y-2">
           <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm">
+            <div className="h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-sky-400 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-sm ring-2 ring-white/10">
               {currentUser.name.charAt(0).toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
-              <span className="block text-xs font-semibold text-app-text truncate">{currentUser.name}</span>
+              <span className="block text-xs font-bold text-app-text truncate">{currentUser.name}</span>
               <span className="block text-[10px] text-app-text/60 font-mono truncate">{currentUser.email}</span>
-              <span className="inline-block mt-0.5 text-[9px] uppercase font-bold px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+              <span className="inline-block mt-0.5 text-[9px] uppercase font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-500/20">
                 {currentUser.role}
               </span>
             </div>
@@ -915,7 +920,7 @@ export default function App() {
                 setIsChangePasswordOpen(true);
                 setIsMobileMenuOpen(false);
               }}
-              className="flex-1 py-1.5 px-2 bg-app-surface border border-app-border rounded text-[11px] font-medium text-app-text/80 hover:text-app-text flex items-center justify-center gap-1.5 cursor-pointer"
+              className="flex-1 py-1.5 px-2 bg-app-surface border border-app-border/60 hover:border-app-border rounded-xl text-[11px] font-medium text-app-text/80 hover:text-app-text flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
             >
               <Key size={12} />
               <span>Clave</span>
@@ -926,7 +931,7 @@ export default function App() {
                 logout();
                 setIsMobileMenuOpen(false);
               }}
-              className="py-1.5 px-2.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded text-[11px] font-medium hover:bg-red-500/20 flex items-center justify-center gap-1 cursor-pointer"
+              className="py-1.5 px-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-[11px] font-medium hover:bg-red-500/20 flex items-center justify-center gap-1 cursor-pointer transition-colors"
             >
               <LogOut size={12} />
               <span>Salir</span>
@@ -956,15 +961,15 @@ export default function App() {
               onClick={() => {
                 if (!isSidebarExpanded) toggleSidebarCollapse();
               }}
-              className="bg-app-surface border border-app-border p-2 rounded-md text-app-text shadow-xs shrink-0 cursor-pointer"
+              className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-sky-500 text-white shadow-md shadow-indigo-500/20 flex items-center justify-center shrink-0 cursor-pointer transition-transform hover:scale-105"
               title={!isSidebarExpanded ? "Haga clic para expandir menú" : "Control Almacén"}
             >
-              <Warehouse size={18} className="stroke-[1.5]" />
+              <Warehouse size={19} className="stroke-[1.8]" />
             </div>
             {isSidebarExpanded && (
               <div className="min-w-0 animate-fadeIn">
-                <h1 className="text-xs font-bold tracking-wider text-app-text uppercase leading-none truncate">Control Almacén</h1>
-                <span className="text-[9px] text-app-text/60 font-mono uppercase tracking-widest mt-1 block truncate">WMS Enterprise</span>
+                <h1 className="text-sm font-bold tracking-tight text-app-text leading-tight truncate">Control Almacén</h1>
+                <span className="text-[10px] text-app-text/60 font-mono tracking-wider mt-0.5 block truncate">WMS Enterprise</span>
               </div>
             )}
           </div>
@@ -973,7 +978,7 @@ export default function App() {
           {isSidebarExpanded && (
             <button
               onClick={toggleSidebarCollapse}
-              className="p-1.5 hover:bg-app-surface border border-transparent hover:border-app-border rounded-md text-app-text/60 hover:text-app-text transition cursor-pointer shrink-0 ml-1"
+              className="p-1.5 hover:bg-app-surface/80 border border-transparent hover:border-app-border/60 rounded-xl text-app-text/60 hover:text-app-text transition cursor-pointer shrink-0 ml-1"
               title={isSidebarCollapsed ? "Fijar menú lateral abierto" : "Ocultar / Colapsar menú lateral"}
               id="sidebar-collapse-toggle-btn"
             >
@@ -989,13 +994,13 @@ export default function App() {
               <div className="flex items-center justify-between text-[11px] font-medium text-app-text/75 animate-fadeIn">
                 <span>Servidor de Datos:</span>
                 {isLocal ? (
-                  <span className="inline-flex items-center gap-1.5 text-app-primary font-semibold text-[10px] bg-app-primary/10 px-2 py-0.5 rounded border border-app-primary/20">
+                  <span className="inline-flex items-center gap-1.5 text-app-primary font-semibold text-[10px] bg-app-primary/10 px-2 py-0.5 rounded-full border border-app-primary/20">
                     <span className="h-1.5 w-1.5 rounded-full bg-app-primary animate-pulse"></span>
                     Demo Local
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 text-app-secondary font-semibold text-[10px] bg-app-secondary/10 px-2 py-0.5 rounded border border-app-secondary/20">
-                    <span className="h-1.5 w-1.5 rounded-full bg-app-secondary"></span>
+                  <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-semibold text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
                     Sincronizado
                   </span>
                 )}
@@ -1010,7 +1015,7 @@ export default function App() {
               className="flex justify-center items-center" 
               title={isLocal ? "Servidor: Demo Local" : "Servidor: Sincronizado con la Nube"}
             >
-              <span className={`h-2.5 w-2.5 rounded-full ${isLocal ? 'bg-app-primary animate-pulse' : 'bg-app-secondary'} ring-4 ring-app-surface`} />
+              <span className={`h-2.5 w-2.5 rounded-full ${isLocal ? 'bg-app-primary animate-pulse' : 'bg-emerald-500'} ring-4 ring-app-surface`} />
             </div>
           )}
         </div>
@@ -1018,7 +1023,7 @@ export default function App() {
         {/* Sidebar Nav Links */}
         <nav className={`flex-1 min-h-0 ${isSidebarExpanded ? 'p-3.5 space-y-1' : 'p-2 space-y-2'} overflow-y-auto overflow-x-hidden transition-all`}>
           {isSidebarExpanded && (
-            <div className="text-[9px] font-bold text-app-text/50 uppercase tracking-widest px-2 mb-2 animate-fadeIn">
+            <div className="text-[9px] font-bold text-app-text/50 uppercase tracking-widest px-2 mb-2 font-mono animate-fadeIn">
               Módulos del Sistema
             </div>
           )}
@@ -1026,15 +1031,15 @@ export default function App() {
           {hasPermission('packingListCreate') && (
             <button
               onClick={() => handleTabChange('generate')}
-              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3.5 py-2.5 justify-start' : 'justify-center p-2.5'} rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer ${
                 activeTab === 'generate'
-                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/70 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
               id="tab-generate"
               title="NUEVO PACKING LIST"
             >
-              <FileText size={16} className={activeTab === 'generate' ? 'text-white' : 'text-app-text/50'} />
+              <FileText size={16} className={activeTab === 'generate' ? 'text-white' : 'text-app-text/60'} />
               {isSidebarExpanded && <span className="truncate">NUEVO PACKING LIST</span>}
             </button>
           )}
@@ -1042,15 +1047,15 @@ export default function App() {
           {(hasPermission('salesOrdersCreate') || hasPermission('salesOrdersView')) && (
             <button
               onClick={() => handleTabChange('sales_order')}
-              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3.5 py-2.5 justify-start' : 'justify-center p-2.5'} rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer ${
                 activeTab === 'sales_order'
-                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/70 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
               id="tab-sales-order"
               title="ÓRDENES DE VENTA"
             >
-              <ClipboardList size={16} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/50'} />
+              <ClipboardList size={16} className={activeTab === 'sales_order' ? 'text-white' : 'text-app-text/60'} />
               {isSidebarExpanded && <span className="truncate">ÓRDENES DE VENTA</span>}
             </button>
           )}
@@ -1058,15 +1063,15 @@ export default function App() {
           {(hasPermission('manageArticles') || hasPermission('manageProviders') || hasPermission('manageClients') || hasPermission('manageSellers')) && (
             <button
               onClick={() => handleTabChange('catalogs')}
-              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3.5 py-2.5 justify-start' : 'justify-center p-2.5'} rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer ${
                 activeTab === 'catalogs'
-                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/70 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
               id="tab-catalogs"
               title="CATÁLOGOS"
             >
-              <Settings size={16} className={activeTab === 'catalogs' ? 'text-white' : 'text-app-text/50'} />
+              <Settings size={16} className={activeTab === 'catalogs' ? 'text-white' : 'text-app-text/60'} />
               {isSidebarExpanded && <span className="truncate">CATÁLOGOS</span>}
             </button>
           )}
@@ -1074,15 +1079,15 @@ export default function App() {
           {hasPermission('inventoryView') && (
             <button
               onClick={() => handleTabChange('inventory')}
-              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3.5 py-2.5 justify-start' : 'justify-center p-2.5'} rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer ${
                 activeTab === 'inventory'
-                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/70 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
               id="tab-inventory"
               title="INVENTARIO"
             >
-              <Warehouse size={16} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/50'} />
+              <Warehouse size={16} className={activeTab === 'inventory' ? 'text-white' : 'text-app-text/60'} />
               {isSidebarExpanded && <span className="truncate">INVENTARIO</span>}
             </button>
           )}
@@ -1090,15 +1095,15 @@ export default function App() {
           {hasPermission('packingListHistory') && (
             <button
               onClick={() => handleTabChange('history')}
-              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3.5 py-2.5 justify-start' : 'justify-center p-2.5'} rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer ${
                 activeTab === 'history'
-                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/70 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
               id="tab-history"
               title="HISTORIAL DE DESPACHOS"
             >
-              <History size={16} className={activeTab === 'history' ? 'text-white' : 'text-app-text/50'} />
+              <History size={16} className={activeTab === 'history' ? 'text-white' : 'text-app-text/60'} />
               {isSidebarExpanded && <span className="truncate">HISTORIAL DE DESPACHOS</span>}
             </button>
           )}
@@ -1106,15 +1111,15 @@ export default function App() {
           {(hasPermission('manageUsers') || currentUser?.role === 'admin') && (
             <button
               onClick={() => handleTabChange('users')}
-              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3 py-2 justify-start' : 'justify-center p-2.5'} rounded-md text-xs font-semibold uppercase tracking-wider transition duration-150 cursor-pointer ${
+              className={`w-full flex items-center ${isSidebarExpanded ? 'gap-3 px-3.5 py-2.5 justify-start' : 'justify-center p-2.5'} rounded-xl text-xs font-semibold tracking-wider transition-all duration-150 cursor-pointer ${
                 activeTab === 'users'
-                  ? 'bg-app-primary text-white border-l-2 border-app-primary shadow-xs'
-                  : 'text-app-text/60 hover:text-app-text hover:bg-app-primary/10'
+                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-500/25'
+                  : 'text-app-text/70 hover:text-app-text hover:bg-slate-200/60 dark:hover:bg-slate-800/50'
               }`}
               id="tab-users"
               title="USUARIOS & ACCESOS"
             >
-              <Users size={16} className={activeTab === 'users' ? 'text-white' : 'text-app-text/50'} />
+              <Users size={16} className={activeTab === 'users' ? 'text-white' : 'text-app-text/60'} />
               {isSidebarExpanded && <span className="truncate">USUARIOS & ACCESOS</span>}
             </button>
           )}
@@ -1122,13 +1127,13 @@ export default function App() {
 
         {/* Quick Connection Action for Local DemoFallback */}
         {isLocal && isSidebarExpanded && (
-          <div className="p-3.5 m-3 bg-app-primary/5 border border-app-primary/20 rounded-md text-xs text-app-text/80 flex flex-col gap-2 shrink-0 animate-fadeIn">
+          <div className="p-3.5 m-3 bg-app-primary/5 border border-app-primary/20 rounded-xl text-xs text-app-text/80 flex flex-col gap-2 shrink-0 animate-fadeIn">
             <p className="leading-tight text-[10px] text-app-primary">
               <strong>Modo Local Activo:</strong> Los datos se almacenan de manera local en el navegador.
             </p>
             <button 
               onClick={handleTryConnectCloud}
-              className="w-full py-1.5 bg-app-primary hover:bg-app-primary/90 text-white font-semibold rounded text-[10px] transition uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer"
+              className="w-full py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-[10px] transition uppercase tracking-wider flex items-center justify-center gap-1 cursor-pointer shadow-sm"
             >
               <RefreshCw size={10} className="animate-spin-slow" />
               Sincronizar Nube
@@ -1137,10 +1142,10 @@ export default function App() {
         )}
 
         {/* User Account / Operator Section - Embedded in Sidebar Footer */}
-        <div className={`${isSidebarExpanded ? 'p-3.5' : 'p-2 py-3 flex justify-center'} border-t border-app-border/45 bg-app-surface/20 shrink-0 transition-all`}>
-          <div className={`flex items-center ${isSidebarExpanded ? 'gap-2.5' : 'justify-center'}`}>
+        <div className={`${isSidebarExpanded ? 'p-3.5' : 'p-2 py-3 flex justify-center'} border-t border-app-border/40 bg-app-surface/30 shrink-0 transition-all`}>
+          <div className={`flex items-center ${isSidebarExpanded ? 'gap-3' : 'justify-center'}`}>
             <div 
-              className="h-8 w-8 rounded-full bg-gradient-to-tr from-indigo-600 to-sky-500 flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-xs cursor-pointer"
+              className="h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-sky-400 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm ring-2 ring-white/10 cursor-pointer transition-transform hover:scale-105"
               title={`Usuario activo: ${currentUser.name} (${currentUser.email})`}
               onClick={() => setIsChangePasswordOpen(true)}
             >
@@ -1149,24 +1154,24 @@ export default function App() {
             {isSidebarExpanded && (
               <div className="flex-1 min-w-0 animate-fadeIn">
                 <div className="flex items-center justify-between">
-                  <span className="block text-[11px] font-semibold text-app-text truncate max-w-[120px]">{currentUser.name}</span>
+                  <span className="block text-xs font-bold text-app-text truncate max-w-[125px]">{currentUser.name}</span>
                   <button
                     type="button"
                     onClick={logout}
                     title="Cerrar Sesión"
-                    className="text-red-400 hover:text-red-300 p-1 rounded hover:bg-red-500/10 transition-colors cursor-pointer"
+                    className="text-red-400/80 hover:text-red-400 p-1 rounded-lg hover:bg-red-500/10 transition-colors cursor-pointer"
                   >
                     <LogOut size={13} />
                   </button>
                 </div>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[9px] uppercase font-bold px-1.5 py-0.2 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                  <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-500/20">
                     {currentUser.role}
                   </span>
                   <button
                     type="button"
                     onClick={() => setIsChangePasswordOpen(true)}
-                    className="text-[9px] text-app-text/50 hover:text-app-text underline cursor-pointer"
+                    className="text-[10px] text-app-text/50 hover:text-app-text hover:underline cursor-pointer"
                   >
                     Clave
                   </button>
@@ -1180,13 +1185,13 @@ export default function App() {
       {/* Main Container - Structured Workspace (Takes 100% full screen on mobile) */}
       <div className={`flex-1 min-w-0 bg-app-bg flex flex-col h-full overflow-hidden ${theme === 'dark' ? 'dark' : ''} ${selectedPrintList ? 'no-print' : ''} ${isTestMode ? 'ring-4 ring-amber-500/70 border-l-4 border-amber-500' : ''}`}>
         
-        {/* Top Header Bar (no-print) - Static & Compact */}
-        <header className={`sticky top-0 z-30 ${isTestMode ? 'bg-amber-500/15 border-b-2 border-amber-500 shadow-md shadow-amber-500/10' : 'bg-app-surface/95 border-b border-app-border'} backdrop-blur-md px-3 sm:px-6 py-2.5 sm:py-3.5 flex justify-between items-center gap-2 sm:gap-3 no-print shrink-0 shadow-2xs transition-colors`}>
+        {/* Top Header Bar (no-print) - Static & Compact with Glassmorphism */}
+        <header className={`sticky top-0 z-30 ${isTestMode ? 'bg-amber-500/15 border-b-2 border-amber-500 shadow-md shadow-amber-500/10' : 'bg-app-surface/85 border-b border-app-border/40 shadow-xs'} backdrop-blur-md px-3 sm:px-6 py-2.5 sm:py-3 flex justify-between items-center gap-2 sm:gap-3 no-print shrink-0 transition-colors`}>
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             {/* Mobile Hamburger Button */}
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="p-2 hover:bg-app-bg text-app-text/80 hover:text-app-text border border-app-border rounded-md transition flex md:hidden items-center justify-center cursor-pointer shadow-2xs shrink-0 min-h-[38px] min-w-[38px]"
+              className="p-2 hover:bg-app-bg text-app-text/80 hover:text-app-text border border-app-border/60 hover:border-app-border rounded-xl transition flex md:hidden items-center justify-center cursor-pointer shadow-2xs shrink-0 min-h-[38px] min-w-[38px]"
               title="Abrir menú de navegación"
               id="mobile-menu-open-btn"
             >
@@ -1196,7 +1201,7 @@ export default function App() {
             {/* Desktop Sidebar Toggle Button */}
             <button
               onClick={toggleSidebarCollapse}
-              className="p-1.5 hover:bg-app-bg text-app-text/70 hover:text-app-text border border-app-border rounded-md transition hidden md:flex items-center justify-center cursor-pointer shadow-2xs shrink-0"
+              className="p-1.5 hover:bg-app-bg text-app-text/70 hover:text-app-text border border-app-border/60 hover:border-app-border rounded-xl transition hidden md:flex items-center justify-center cursor-pointer shadow-2xs shrink-0"
               title={isSidebarCollapsed ? "Mostrar / Expandir panel lateral fijo" : "Ocultar / Colapsar panel lateral"}
               id="global-sidebar-toggle-btn"
             >
@@ -1204,8 +1209,9 @@ export default function App() {
             </button>
 
             <div className="min-w-0">
-              <div className="text-[8px] sm:text-[9px] font-bold text-app-text/50 uppercase tracking-widest truncate">
-                SISTEMA DE CONTROL Y DESPACHOS
+              <div className="flex items-center gap-1.5 text-[8px] sm:text-[9px] font-bold text-app-text/50 uppercase tracking-widest truncate font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                <span>SISTEMA DE CONTROL Y DESPACHOS</span>
               </div>
               <h2 className="text-sm sm:text-base font-bold text-app-text tracking-tight mt-0.5 truncate flex items-center gap-2">
                 <span>
@@ -1225,14 +1231,35 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* Quick Search Trigger Bar (Icon + Text + Ctrl+K Badge) */}
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              className="hidden sm:flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-app-bg/70 hover:bg-app-bg border border-app-border/60 hover:border-app-border text-app-text/60 hover:text-app-text text-xs transition-all shadow-2xs group cursor-pointer min-h-[36px]"
+              title="Buscar en todo el sistema (Ctrl+K)"
+              id="global-search-trigger-btn"
+            >
+              <Search size={14} className="text-app-text/50 group-hover:text-indigo-500 transition-colors" />
+              <span className="hidden md:inline font-normal text-app-text/60 text-xs">Buscar despacho, rollo, cliente...</span>
+              <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono font-medium rounded-md bg-app-surface border border-app-border/80 text-app-text/50 shadow-2xs">
+                Ctrl K
+              </kbd>
+            </button>
+            <button
+              onClick={() => setIsSearchOpen(true)}
+              className="flex sm:hidden p-2 rounded-xl hover:bg-app-bg text-app-text/70 hover:text-app-text border border-app-border/60 transition cursor-pointer min-h-[36px] min-w-[36px] items-center justify-center"
+              title="Buscar (Ctrl+K)"
+            >
+              <Search size={15} />
+            </button>
+
             {/* Modo Prueba Toggle Button */}
             <button
               onClick={toggleTestMode}
-              className={`px-2.5 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1.5 cursor-pointer min-h-[34px] border ${
+              className={`px-2.5 sm:px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer min-h-[36px] border ${
                 isTestMode
                   ? 'bg-amber-500 hover:bg-amber-600 text-slate-950 border-amber-600 ring-2 ring-amber-400 shadow-md font-black animate-pulse'
-                  : 'bg-app-surface hover:bg-app-bg text-app-text/75 hover:text-app-text border-app-border'
+                  : 'bg-app-surface hover:bg-app-bg text-app-text/75 hover:text-app-text border-app-border/60 hover:border-app-border'
               }`}
               title={isTestMode ? "Modo Prueba ACTIVO (Haga clic para desactivar)" : "Activar Modo Prueba (Para probar sin guardar ni alterar correlativos)"}
               id="test-mode-toggle-btn"
@@ -1253,47 +1280,37 @@ export default function App() {
               <DevRulesMonitor data={{ inventory, packingLists, articles, providers, clients, sellers }} />
             </Suspense>
 
-            {/* Quick Search Trigger Button */}
-            <button
-              onClick={() => setIsSearchOpen(true)}
-              className="p-1.5 sm:p-1.5 hover:bg-app-bg text-app-text/70 hover:text-app-text border border-app-border rounded transition flex items-center justify-center cursor-pointer gap-1.5 px-2 sm:px-2.5 min-h-[34px]"
-              title="Buscar (Ctrl+K)"
-              id="global-search-trigger-btn"
-            >
-              <Search size={14} />
-              <span className="text-[10px] font-bold text-app-text/50 hidden md:inline font-mono">Ctrl+K</span>
-            </button>
-
             {/* Theme Toggle Button */}
             <button
               onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-              className="p-1.5 hover:bg-app-bg text-app-text/70 hover:text-app-text border border-app-border rounded transition flex items-center justify-center cursor-pointer min-h-[34px] min-w-[34px]"
+              className="p-2 hover:bg-app-bg text-app-text/70 hover:text-app-text border border-app-border/60 hover:border-app-border rounded-xl transition-all flex items-center justify-center cursor-pointer min-h-[36px] min-w-[36px]"
               title={theme === 'light' ? "Cambiar a modo oscuro" : "Cambiar a modo claro"}
               id="theme-toggle-btn"
             >
               {theme === 'light' ? <Moon size={14} /> : <Sun size={14} />}
             </button>
 
+            {/* Sincronizar Base de Datos Button */}
             <button
               onClick={handleForceRefresh}
-              className="p-1.5 hover:bg-app-bg text-app-text/70 hover:text-app-text border border-app-border rounded transition cursor-pointer"
+              className="p-2 hover:bg-app-bg text-app-text/70 hover:text-app-text border border-app-border/60 hover:border-app-border rounded-xl transition-all cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
               title="Sincronizar base de datos"
             >
               <RefreshCw size={13} className={loading ? "animate-spin text-app-secondary" : ""} />
             </button>
             
-            <div className="text-right hidden xl:block font-mono text-[10px] text-app-text/50 border-l border-app-border pl-3">
+            <div className="text-right hidden xl:block font-mono text-[10px] text-app-text/50 border-l border-app-border/60 pl-3">
               {new Date().toLocaleDateString('es-ES', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })}
             </div>
 
             {/* User Account Menu Dropdown */}
-            <div ref={userMenuRef} className="relative border-l border-app-border pl-1.5 sm:pl-2">
+            <div ref={userMenuRef} className="relative border-l border-app-border/60 pl-1.5 sm:pl-2">
               <button
                 type="button"
                 onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1 rounded-lg bg-app-surface border border-app-border hover:bg-app-bg transition-colors cursor-pointer text-left"
+                className="flex items-center gap-2 p-1 sm:px-2.5 sm:py-1 rounded-xl bg-app-surface border border-app-border/70 hover:bg-app-bg hover:border-app-border transition-all cursor-pointer text-left shadow-2xs"
               >
-                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-600 to-sky-500 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-indigo-500 to-sky-400 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs ring-1 ring-white/10">
                   {currentUser.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="hidden lg:block text-left">
@@ -1309,13 +1326,13 @@ export default function App() {
 
               {isUserMenuOpen && (
                 <div 
-                  className="absolute right-0 top-full mt-2 w-56 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl py-2 z-50 text-xs animate-in fade-in slide-in-from-top-2 duration-150"
+                  className="absolute right-0 top-full mt-2 w-60 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl py-2 z-50 text-xs animate-in fade-in slide-in-from-top-2 duration-150"
                   onClick={() => setIsUserMenuOpen(false)}
                 >
-                  <div className="px-4 py-2.5 border-b border-slate-800">
-                    <div className="font-bold text-white truncate">{currentUser.name}</div>
-                    <div className="text-slate-400 font-mono text-[11px] truncate">{currentUser.email}</div>
-                    <div className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[10px] font-semibold uppercase">
+                  <div className="px-4 py-2.5 border-b border-slate-100 dark:border-slate-800">
+                    <div className="font-bold text-slate-900 dark:text-white truncate">{currentUser.name}</div>
+                    <div className="text-slate-500 dark:text-slate-400 font-mono text-[11px] truncate">{currentUser.email}</div>
+                    <div className="mt-1.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 text-[10px] font-semibold uppercase">
                       <ShieldCheck size={10} />
                       {currentUser.role}
                     </div>
@@ -1329,9 +1346,9 @@ export default function App() {
                           handleTabChange('users');
                           setIsUserMenuOpen(false);
                         }}
-                        className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors text-left cursor-pointer"
+                        className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white transition-colors text-left cursor-pointer"
                       >
-                        <Users size={14} className="text-indigo-400" />
+                        <Users size={14} className="text-indigo-500 dark:text-indigo-400" />
                         <span>Gestión de Usuarios</span>
                       </button>
                     )}
@@ -1342,21 +1359,21 @@ export default function App() {
                         setIsChangePasswordOpen(true);
                         setIsUserMenuOpen(false);
                       }}
-                      className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-300 hover:bg-slate-800/80 hover:text-white transition-colors text-left cursor-pointer"
+                      className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white transition-colors text-left cursor-pointer"
                     >
-                      <Key size={14} className="text-amber-400" />
+                      <Key size={14} className="text-amber-500 dark:text-amber-400" />
                       <span>Cambiar mi contraseña</span>
                     </button>
                   </div>
 
-                  <div className="pt-1 border-t border-slate-800">
+                  <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
                     <button
                       type="button"
                       onClick={() => {
                         logout();
                         setIsUserMenuOpen(false);
                       }}
-                      className="w-full px-4 py-2 flex items-center gap-2.5 text-red-400 hover:bg-red-500/10 transition-colors text-left cursor-pointer font-medium"
+                      className="w-full px-4 py-2 flex items-center gap-2.5 text-red-500 dark:text-red-400 hover:bg-red-500/10 transition-colors text-left cursor-pointer font-medium"
                     >
                       <LogOut size={14} />
                       <span>Cerrar Sesión</span>
@@ -1393,7 +1410,7 @@ export default function App() {
         )}
 
         {/* Content Body Wrapper */}
-        <main className="flex-1 min-h-0 p-6 overflow-y-auto space-y-4">
+        <main className="flex-1 min-h-0 p-5 sm:p-7 overflow-y-auto space-y-5 transition-all">
           {connectionErrorReason && (
             <AlertBanner
               type="warning"
@@ -1422,37 +1439,44 @@ export default function App() {
 
         {/* High Density Status Bar - Bottom (no-print) */}
         <footer className="bg-app-surface text-app-text/50 px-6 py-2.5 text-[9px] flex flex-wrap justify-between items-center border-t border-app-border no-print font-mono">
-          <span className="flex items-center gap-2 flex-wrap">
-            <span className="h-1.5 w-1.5 rounded-full bg-app-secondary animate-pulse"></span>
-            WMS Mode: {isLocal ? "Local Demo Offline" : "Firestore Production DB"} • LiveSync • TLS Secure
-            <button
-              onClick={handleDownloadBackup}
-              className="ml-3 px-2 py-0.5 bg-app-primary hover:bg-app-primary/95 text-white font-semibold rounded text-[8px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition duration-150 shadow-xs border border-app-primary"
-              title="Descargar un respaldo completo de la base de datos en formato JSON"
-            >
-              <Download size={8} />
-              Descargar Respaldo Completo
-            </button>
-            {isLocal && hasPendingSync && (
+          {isAdmin ? (
+            <span className="flex items-center gap-2 flex-wrap">
+              <span className="h-1.5 w-1.5 rounded-full bg-app-secondary animate-pulse"></span>
+              WMS Mode: {isLocal ? "Local Demo Offline" : "Firestore Production DB"} • LiveSync • TLS Secure
               <button
-                onClick={handleSyncLocalData}
-                disabled={isSyncing}
-                className="ml-3 px-2 py-0.5 bg-app-primary hover:bg-app-primary/95 text-white font-semibold rounded text-[8px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition duration-150 disabled:opacity-50"
+                onClick={handleDownloadBackup}
+                className="ml-3 px-2 py-0.5 bg-app-primary hover:bg-app-primary/95 text-white font-semibold rounded text-[8px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition duration-150 shadow-xs border border-app-primary"
+                title="Descargar un respaldo completo de la base de datos en formato JSON"
               >
-                {isSyncing ? (
-                  <>
-                    <RefreshCw size={8} className="animate-spin" />
-                    Sincronizando...
-                  </>
-                ) : (
-                  <>
-                    <CloudLightning size={8} />
-                    Subir Datos Locales a la Nube
-                  </>
-                )}
+                <Download size={8} />
+                Descargar Respaldo Completo
               </button>
-            )}
-          </span>
+              {isLocal && hasPendingSync && (
+                <button
+                  onClick={handleSyncLocalData}
+                  disabled={isSyncing}
+                  className="ml-3 px-2 py-0.5 bg-app-primary hover:bg-app-primary/95 text-white font-semibold rounded text-[8px] uppercase tracking-wider flex items-center gap-1 cursor-pointer transition duration-150 disabled:opacity-50"
+                >
+                  {isSyncing ? (
+                    <>
+                      <RefreshCw size={8} className="animate-spin" />
+                      Sincronizando...
+                    </>
+                  ) : (
+                    <>
+                      <CloudLightning size={8} />
+                      Subir Datos Locales a la Nube
+                    </>
+                  )}
+                </button>
+              )}
+            </span>
+          ) : (
+            <span className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+              <span>Terminal Operativa Conectada</span>
+            </span>
+          )}
           <span className="uppercase tracking-wider">
             © 2026 Sistema WMS • Almacén y Logística
           </span>
