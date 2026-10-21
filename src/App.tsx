@@ -446,7 +446,12 @@ export default function App() {
         }, (error: any) => {
           console.error("Firestore Clients error:", error);
           if (error?.code === 'permission-denied') {
-            triggerFallback("Clients Permission Denied / Error");
+            if (isAdmin) {
+              console.warn("Ignoring permission-denied for admin on clients, loading local/empty cache");
+              setClients(getLocalStorageCollection('clients'));
+            } else {
+              triggerFallback("Clients Permission Denied / Error");
+            }
           }
         });
         unsubs.push(unsubClients);
