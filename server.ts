@@ -180,7 +180,8 @@ function verifyServerLegacyPassword(password: string, salt: string, storedHash: 
 }
 
 // Lazy Account Migration Route: Bridges legacy password hashes to Firebase Auth securely
-const migrationRateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const migrationRateLimitIpMap = new Map<string, { count: number; resetTime: number }>();
+const migrationRateLimitEmailMap = new Map<string, { count: number; resetTime: number }>();
 
 app.post("/api/auth/migrate-legacy", async (req, res) => {
   const { email, password } = req.body || {};
@@ -191,17 +192,18 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
   const cleanEmail = email.trim().toLowerCase();
   const cleanPassword = password.trim();
 
-  // Rate Limiting by real client IP (max 10 attempts / minute)
+  // 1. Dual Rate Limiting (by real client IP: max 10/min, and by target email: max 5/min)
   const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
   const now = Date.now();
-  const rateKey = `mig:${clientIp}`;
-  let record = migrationRateLimitMap.get(rateKey);
-  if (!record || now > record.resetTime) {
-    record = { count: 1, resetTime: now + 60000 };
-    migrationRateLimitMap.set(rateKey, record);
+
+  const ipKey = `mig-ip:${clientIp}`;
+  let ipRecord = migrationRateLimitIpMap.get(ipKey);
+  if (!ipRecord || now > ipRecord.resetTime) {
+    ipRecord = { count: 1, resetTime: now + 60000 };
+    migrationRateLimitIpMap.set(ipKey, ipRecord);
   } else {
-    record.count++;
-    if (record.count > 10) {
+    ipRecord.count++;
+    if (ipRecord.count > 10) {
       return res.status(429).json({ 
         success: false, 
         message: 'Demasiados intentos de verificación. Inténtalo de nuevo en 1 minuto.' 
@@ -209,28 +211,58 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
     }
   }
 
+  const emailKey = `mig-email:${cleanEmail}`;
+  let emailRecord = migrationRateLimitEmailMap.get(emailKey);
+  if (!emailRecord || now > emailRecord.resetTime) {
+    emailRecord = { count: 1, resetTime: now + 60000 };
+    migrationRateLimitEmailMap.set(emailKey, emailRecord);
+  } else {
+    emailRecord.count++;
+    if (emailRecord.count > 5) {
+      return res.status(429).json({ 
+        success: false, 
+        message: 'Demasiados intentos de verificación para esta cuenta. Inténtalo de nuevo en 1 minuto.' 
+      });
+    }
+  }
+
   try {
-    const firestore = getAdminFirestore();
+    const firestore = (firebaseConfig as any).firestoreDatabaseId 
+      ? getAdminFirestore((firebaseConfig as any).firestoreDatabaseId)
+      : getAdminFirestore();
     const adminAuth = getAdminAuth();
-    const SUPER_ADMIN = 'paulcalebfs123@gmail.com';
 
-    let userDoc: any = null;
-    let oldDocId = '';
-
+    // 2. Search for legacy user in Firestore
     const usersSnap = await firestore.collection('users').where('email', '==', cleanEmail).get();
-    if (!usersSnap.empty) {
-      userDoc = usersSnap.docs[0].data();
-      oldDocId = usersSnap.docs[0].id;
+    if (usersSnap.empty) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Credenciales inválidas o cuenta no registrada.' 
+      });
     }
 
-    let passwordValid = false;
+    const legacyDoc = usersSnap.docs[0];
+    const userDoc = legacyDoc.data();
+    const oldDocId = legacyDoc.id;
 
-    if (userDoc && userDoc.passwordHash && userDoc.salt) {
-      passwordValid = verifyServerLegacyPassword(cleanPassword, userDoc.salt, userDoc.passwordHash);
-    } else if (cleanEmail === SUPER_ADMIN && cleanPassword === 'admin123') {
-      passwordValid = true;
+    // Must have stored passwordHash and salt
+    if (!userDoc || !userDoc.passwordHash || !userDoc.salt) {
+      // If already in Firebase Auth, return 409 Conflict
+      try {
+        await adminAuth.getUserByEmail(cleanEmail);
+        return res.status(409).json({
+          success: false,
+          message: 'La cuenta ya ha sido migrada a Firebase Auth. Inicie sesión directamente con su correo y contraseña.'
+        });
+      } catch {}
+
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Credenciales inválidas o cuenta no registrada.' 
+      });
     }
 
+    const passwordValid = verifyServerLegacyPassword(cleanPassword, userDoc.salt, userDoc.passwordHash);
     if (!passwordValid) {
       return res.status(401).json({ 
         success: false, 
@@ -238,61 +270,64 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
       });
     }
 
-    // 1. Provision / update account in Firebase Auth
-    let fbUser;
+    // 3. Reject immediately if account already exists in Firebase Auth (409 Conflict)
     try {
-      fbUser = await adminAuth.getUserByEmail(cleanEmail);
-      await adminAuth.updateUser(fbUser.uid, { password: cleanPassword });
-    } catch (e: any) {
-      if (e.code === 'auth/user-not-found') {
-        fbUser = await adminAuth.createUser({
-          email: cleanEmail,
-          password: cleanPassword,
-          displayName: userDoc?.name || (cleanEmail === SUPER_ADMIN ? 'Paul Administrador' : 'Usuario')
+      await adminAuth.getUserByEmail(cleanEmail);
+      return res.status(409).json({
+        success: false,
+        message: 'La cuenta ya ha sido migrada a Firebase Auth. Inicie sesión directamente con su correo y contraseña.'
+      });
+    } catch (authLookupErr: any) {
+      if (authLookupErr.code !== 'auth/user-not-found') {
+        console.error('Error al verificar cuenta en Firebase Auth:', authLookupErr);
+        return res.status(500).json({
+          success: false,
+          message: 'Error del servidor durante la migración de cuenta.'
         });
-      } else {
-        throw e;
       }
+      // user-not-found is expected: proceed to create in Firebase Auth
     }
+
+    // 4. Create brand new account in Firebase Auth (no updateUser)
+    const fbUser = await adminAuth.createUser({
+      email: cleanEmail,
+      password: cleanPassword,
+      displayName: userDoc.name || 'Usuario'
+    });
 
     const targetUid = fbUser.uid;
 
-    // 2. Ensure user profile in Firestore under UID, without passwordHash or salt
+    // If role is admin, assign admin custom claim
+    if (userDoc.role === 'admin') {
+      try {
+        await adminAuth.setCustomUserClaims(targetUid, { admin: true });
+      } catch (claimErr) {
+        console.error('Error al asignar custom claim admin en migración:', claimErr);
+      }
+    }
+
+    // 5. Create / merge Firestore user profile keyed by UID without passwordHash or salt
     const profileData: Record<string, any> = {
       id: targetUid,
-      name: userDoc?.name || (cleanEmail === SUPER_ADMIN ? 'Paul Administrador' : 'Usuario'),
+      name: userDoc.name || 'Usuario',
       email: cleanEmail,
-      role: userDoc?.role || (cleanEmail === SUPER_ADMIN ? 'admin' : 'custom'),
-      status: userDoc?.status || 'active',
-      permissions: userDoc?.permissions || (cleanEmail === SUPER_ADMIN ? {
-        inventoryView: true,
-        inventoryCreate: true,
-        inventoryEdit: true,
-        inventoryDelete: true,
-        inventoryAdjust: true,
-        packingListView: true,
-        packingListCreate: true,
-        packingListCancel: true,
-        manageClients: true,
-        manageArticles: true,
-        manageProviders: true,
-        manageSellers: true,
-        manageUsers: true,
-        salesOrdersView: true,
-        salesOrdersCreate: true
-      } : {}),
-      mustChangePassword: userDoc?.mustChangePassword !== undefined ? userDoc.mustChangePassword : (cleanPassword === 'admin123'),
-      createdAt: userDoc?.createdAt || new Date().toISOString(),
+      role: userDoc.role || 'custom',
+      status: userDoc.status || 'active',
+      permissions: userDoc.permissions || {},
+      mustChangePassword: userDoc.mustChangePassword === true,
+      createdAt: userDoc.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     await firestore.collection('users').doc(targetUid).set(profileData, { merge: true });
 
-    // Clean up old legacy doc if different ID
+    // Clean up old legacy doc if document ID was different from the new UID
     if (oldDocId && oldDocId !== targetUid) {
       try {
         await firestore.collection('users').doc(oldDocId).delete();
-      } catch {}
+      } catch (delErr) {
+        console.warn('Error eliminando documento legado antiguo:', delErr);
+      }
     }
 
     return res.json({ success: true, migrated: true });
@@ -300,7 +335,7 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
     console.error('Error in /api/auth/migrate-legacy:', err);
     return res.status(500).json({ 
       success: false, 
-      message: err?.message || 'Error del servidor durante la migración de cuenta.' 
+      message: 'Error del servidor durante la migración de cuenta.' 
     });
   }
 });

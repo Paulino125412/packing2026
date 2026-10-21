@@ -3,13 +3,10 @@ import {
   collection, 
   doc, 
   getDoc, 
-  getDocs, 
   setDoc, 
   updateDoc, 
   deleteDoc, 
-  onSnapshot,
-  query,
-  where
+  onSnapshot
 } from 'firebase/firestore';
 import { 
   signInWithEmailAndPassword,
@@ -20,12 +17,11 @@ import {
   EmailAuthProvider,
   onAuthStateChanged
 } from 'firebase/auth';
-import { initializeApp, getApps } from 'firebase/app';
+import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { db, auth } from '../firebase';
 import firebaseConfig from '../../firebase-applet-config.json';
 import { UserProfile, UserPermissions, UserRole } from '../types';
-import { verifyPasswordWithMigration } from '../utils/crypto';
 import { ROLE_PRESETS } from '../utils/roles';
 
 interface AuthContextType {
@@ -56,8 +52,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const SUPER_ADMIN_EMAIL = 'paulcalebfs123@gmail.com';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -107,34 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setCurrentUser(profile);
               setMustChangePassword(profile.mustChangePassword === true);
             } else {
-              // Si aún no existe el documento con el uid (ej. durante migración), buscar por email
-              const q = query(collection(db, 'users'), where('email', '==', (firebaseUser.email || '').toLowerCase()));
-              const querySnap = await getDocs(q);
-              if (!querySnap.empty) {
-                const matched = querySnap.docs[0];
-                const data = matched.data();
-                const profile: UserProfile = {
-                  id: firebaseUser.uid,
-                  name: data.name || 'Usuario',
-                  email: (firebaseUser.email || '').toLowerCase(),
-                  role: data.role || 'custom',
-                  status: data.status || 'active',
-                  permissions: data.permissions || { ...ROLE_PRESETS.almacen.permissions },
-                  createdAt: data.createdAt || new Date().toISOString(),
-                  updatedAt: data.updatedAt,
-                  lastLoginAt: data.lastLoginAt,
-                  mustChangePassword: data.mustChangePassword === true
-                };
-
-                // Migrar documento a la clave UID
-                await setDoc(doc(db, 'users', firebaseUser.uid), profile);
-                if (matched.id !== firebaseUser.uid) {
-                  await deleteDoc(doc(db, 'users', matched.id));
-                }
-
-                setCurrentUser(profile);
-                setMustChangePassword(profile.mustChangePassword === true);
-              }
+              console.warn('Documento de perfil de usuario no encontrado en Firestore para UID:', firebaseUser.uid);
             }
             setIsLoading(false);
           }, (err) => {
@@ -158,9 +125,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // 2. Escuchar la colección de usuarios en tiempo real para el panel de administración
+  // 2. Escuchar la colección de usuarios en tiempo real para el panel de administración (SOLO Administradores)
   useEffect(() => {
-    if (!currentUser || (currentUser.role !== 'admin' && currentUser.email !== SUPER_ADMIN_EMAIL.toLowerCase())) {
+    if (!currentUser || currentUser.role !== 'admin') {
+      setUsersList([]);
       return;
     }
 
@@ -211,18 +179,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let profileData: any = docSnap.exists() ? docSnap.data() : null;
 
       if (!profileData) {
-        // Buscar por email si el UID cambió
-        const q = query(collection(db, 'users'), where('email', '==', cleanEmail));
-        const qSnap = await getDocs(q);
-        if (!qSnap.empty) {
-          const oldDoc = qSnap.docs[0];
-          profileData = oldDoc.data();
-          // Migrar al UID
-          await setDoc(userDocRef, { ...profileData, id: uid });
-          if (oldDoc.id !== uid) {
-            await deleteDoc(doc(db, 'users', oldDoc.id));
-          }
-        }
+        console.warn(`No se encontró documento de perfil en Firestore para UID: ${uid}`);
       }
 
       // Validar cuenta inactiva
@@ -232,7 +189,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // Validar restricción de horario (6:00 AM a 8:00 PM) para no-admin
-      const isAdmin = profileData?.role === 'admin' || cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase();
+      const isAdmin = profileData?.role === 'admin';
       if (!isAdmin) {
         const currentHour = new Date().getHours();
         if (currentHour < 6 || currentHour >= 20) {
@@ -257,7 +214,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (isUserNotFound) {
         try {
-          // 1. Intentar migración segura en el backend
+          // Intentar migración segura en el backend
           const migRes = await fetch('/api/auth/migrate-legacy', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -269,45 +226,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Autenticar en Firebase Auth tras la migración exitosa
             await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
             return { success: true };
-          } else if (migData && migData.message && migRes.status !== 500) {
+          } else if (migData && migData.message) {
             return { success: false, message: migData.message };
           }
         } catch (backendErr) {
-          console.warn('Backend migration endpoint unavailable, trying direct client bootstrap:', backendErr);
-        }
-
-        // 2. Si el backend no estaba disponible, verificar superadmin inicial o credenciales
-        if (cleanEmail === SUPER_ADMIN_EMAIL.toLowerCase() && cleanPassword === 'admin123') {
-          try {
-            let userCred;
-            try {
-              userCred = await createUserWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-            } catch (err: any) {
-              if (err.code === 'auth/email-already-in-use') {
-                userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-              } else {
-                throw err;
-              }
-            }
-
-            const newUid = userCred.user.uid;
-            const superAdminProfile: UserProfile = {
-              id: newUid,
-              name: 'Paul Administrador',
-              email: SUPER_ADMIN_EMAIL,
-              role: 'admin',
-              status: 'active',
-              permissions: { ...ROLE_PRESETS.admin.permissions },
-              mustChangePassword: true,
-              createdAt: new Date().toISOString(),
-              lastLoginAt: new Date().toISOString()
-            };
-
-            await setDoc(doc(db, 'users', newUid), superAdminProfile);
-            return { success: true };
-          } catch (initAdminErr: any) {
-            console.error('Error al inicializar SuperAdmin:', initAdminErr);
-          }
+          console.error('Error al contactar el servicio de migración de cuenta:', backendErr);
+          return { success: false, message: 'No se pudo comunicar con el servicio de autenticación. Inténtalo de nuevo.' };
         }
       }
 
@@ -329,7 +253,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // 5. Verificación de permisos
   const hasPermission = (permissionKey: keyof UserPermissions): boolean => {
     if (!currentUser) return false;
-    if (currentUser.role === 'admin' || currentUser.email === SUPER_ADMIN_EMAIL.toLowerCase()) {
+    if (currentUser.role === 'admin') {
       return true;
     }
     return !!currentUser.permissions?.[permissionKey];
@@ -419,8 +343,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const target = usersList.find(u => u.id === id);
     if (!target) return { success: false, message: 'Usuario no encontrado' };
 
-    if (target.email === SUPER_ADMIN_EMAIL.toLowerCase()) {
-      return { success: false, message: 'No es posible desactivar la cuenta del Administrador Principal.' };
+    if (target.id === currentUser?.id) {
+      return { success: false, message: 'No es posible desactivar tu propia cuenta.' };
     }
 
     const nextStatus = target.status === 'active' ? 'inactive' : 'active';
@@ -441,8 +365,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const target = usersList.find(u => u.id === id);
     if (!target) return { success: false, message: 'Usuario no encontrado' };
 
-    if (target.email === SUPER_ADMIN_EMAIL.toLowerCase()) {
-      return { success: false, message: 'No es posible eliminar la cuenta del Administrador Principal.' };
+    if (target.id === currentUser?.id) {
+      return { success: false, message: 'No es posible eliminar tu propia cuenta.' };
     }
 
     try {

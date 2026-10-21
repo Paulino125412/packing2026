@@ -1572,9 +1572,7 @@ export default function PackingListForm({
           if (counterSnap.exists()) {
             const counterData = counterSnap.data();
             const currentVal = Number(counterData?.currentValue) || 0;
-            // Asegurar que siempre sea al menos mayor que el número más alto existente
-            const baseVal = Math.max(currentVal, maxExistingNum);
-            nextValue = baseVal + 1;
+            nextValue = currentVal + 1;
           } else {
             // Si el documento counters/packingListNo no existe en Firestore (ej. primer uso o documento borrado),
             // se inicializa automáticamente tomando como base el correlativo más alto existente en la base de datos + 1

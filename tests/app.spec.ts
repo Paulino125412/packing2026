@@ -138,4 +138,50 @@ test.describe('Seguridad e Infraestructura del Sistema', () => {
     expect(serialized).not.toContain('passwordHash');
     expect(serialized).not.toContain('salt');
   });
+
+  // e) POST /api/auth/migrate-legacy validación estricta de campos
+  test('POST /api/auth/migrate-legacy sin credenciales responde 400 Bad Request', async ({ request }) => {
+    const response = await request.post('/api/auth/migrate-legacy', {
+      data: { email: '', password: '' }
+    });
+    expect(response.status()).toBe(400);
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.message).toContain('requeridos');
+  });
+
+  // f) POST /api/auth/migrate-legacy responde con error genérico seguro sin fugar detalles
+  test('POST /api/auth/migrate-legacy responde con mensaje genérico seguro sin fugar detalles de error', async ({ request }) => {
+    const response = await request.post('/api/auth/migrate-legacy', {
+      data: { email: 'nonexistent_user_test@example.com', password: 'random_password_xyz' }
+    });
+    expect([401, 500]).toContain(response.status());
+    const body = await response.json();
+    expect(body.success).toBe(false);
+    expect(body.message).not.toContain('stack');
+    expect(body.message).not.toContain('PERMISSION_DENIED');
+    expect(body.message).not.toContain('auth/');
+  });
+
+  // g) POST /api/auth/migrate-legacy rate limit por correo (máximo 5 intentos por minuto)
+  test('POST /api/auth/migrate-legacy aplica rate limit estricto por correo (responde 429 tras ráfaga)', async ({ request }) => {
+    const testTargetEmail = 'ratelimit_probe@example.com';
+    let reached429 = false;
+
+    for (let i = 1; i <= 8; i++) {
+      const response = await request.post('/api/auth/migrate-legacy', {
+        data: { email: testTargetEmail, password: `badpass_${i}` }
+      });
+
+      if (response.status() === 429) {
+        reached429 = true;
+        const body = await response.json();
+        expect(body.success).toBe(false);
+        expect(body.message).toContain('Demasiados intentos de verificación');
+        break;
+      }
+    }
+
+    expect(reached429).toBe(true);
+  });
 });

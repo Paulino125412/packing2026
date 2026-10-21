@@ -1,11 +1,6 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global Safety Net: default deny all
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
     // Common Helpers
     function isAuthenticated() {
       return request.auth != null;
@@ -27,7 +22,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return isAuthenticated() && (
-        request.auth.token.email == 'paulcalebfs123@gmail.com' ||
+        request.auth.token.admin == true ||
         (isUserActive() && getUserRole() == 'admin')
       );
     }
@@ -382,14 +377,17 @@ service cloud.firestore {
     match /counters/{counterId} {
       allow read: if isUserActive();
       allow create: if isUserActive()
+        && (isAdmin() || hasPermission('packingListCreate') || hasPermission('salesOrdersCreate'))
         && isValidId(counterId)
         && (incoming(request).currentValue is int || incoming(request).currentValue is float || incoming(request).currentValue is number)
         && incoming(request).currentValue >= 0
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
       allow update: if isUserActive()
+        && (isAdmin() || hasPermission('packingListCreate') || hasPermission('salesOrdersCreate'))
         && isValidId(counterId)
         && (incoming(request).currentValue is int || incoming(request).currentValue is float || incoming(request).currentValue is number)
         && incoming(request).currentValue >= resource.data.currentValue
+        && incoming(request).currentValue <= resource.data.currentValue + 1
         && (!('updatedAt' in incoming(request)) || (incoming(request).updatedAt is string && incoming(request).updatedAt.size() <= 100));
       allow delete: if false;
     }
@@ -398,12 +396,11 @@ service cloud.firestore {
     // Only admins can create or delete users.
     // Non-admin users cannot modify their own role, permissions, status or mustChangePassword.
     match /users/{userId} {
-      allow read: if isAuthenticated() && (request.auth.uid == userId || isUserActive());
-      allow create: if isAuthenticated() && (
-        isAdmin() || 
-        (request.auth.uid == userId && request.auth.token.email == 'paulcalebfs123@gmail.com')
-      )
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
+      allow create: if isAuthenticated() && isAdmin()
         && isValidId(userId)
+        && !('passwordHash' in incoming(request))
+        && !('salt' in incoming(request))
         && incoming(request).name is string
         && incoming(request).name.size() > 0
         && incoming(request).name.size() <= 128
@@ -419,6 +416,8 @@ service cloud.firestore {
         && (!('lastLoginAt' in incoming(request)) || (incoming(request).lastLoginAt is string && incoming(request).lastLoginAt.size() <= 100));
       allow update: if isAuthenticated()
         && isValidId(userId)
+        && !('passwordHash' in incoming(request))
+        && !('salt' in incoming(request))
         && (
           isAdmin() || 
           (
