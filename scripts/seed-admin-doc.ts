@@ -9,10 +9,20 @@ if (!getApps().length) {
   });
 }
 
-const firestore = getFirestore();
+const firestore = (firebaseConfig as any).firestoreDatabaseId 
+  ? getFirestore((firebaseConfig as any).firestoreDatabaseId) 
+  : getFirestore();
 
 async function seedAdmin() {
   try {
+    const docRef = firestore.collection('users').doc('admin_paulcalebfs123');
+    const docSnap = await docRef.get();
+
+    if (docSnap.exists) {
+      console.log('El perfil de superadmin ya existe en Firestore. No se sobrescribió nada.');
+      return;
+    }
+
     const adminPermissions = {
       inventoryView: true,
       inventoryCreate: true,
@@ -31,7 +41,7 @@ async function seedAdmin() {
       salesOrdersCreate: true
     };
 
-    await firestore.collection('users').doc('admin_paulcalebfs123').set({
+    await docRef.set({
       id: 'admin_paulcalebfs123',
       name: 'Super Administrador',
       email: 'paulcalebfs123@gmail.com',
@@ -41,11 +51,12 @@ async function seedAdmin() {
       mustChangePassword: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
-    }, { merge: true });
+    });
 
     console.log('✓ Perfil de superadmin creado en Firestore correctamente.');
   } catch (err) {
-    console.warn('Aviso al crear perfil de superadmin en Firestore (puede requerir credenciales de Admin SDK):', err);
+    console.error('Error al sembrar perfil de superadmin en Firestore:', err);
+    process.exit(1);
   }
 }
 

@@ -101,37 +101,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setCurrentUser(profile);
               setMustChangePassword(profile.mustChangePassword === true);
             } else {
-              // Si es el superadministrador principal y aún no tiene documento en Firestore, auto-inicializarlo
-              if (firebaseUser.email?.toLowerCase() === 'paulcalebfs123@gmail.com') {
-                const superAdminProfile: UserProfile = {
-                  id: firebaseUser.uid,
-                  name: firebaseUser.displayName || 'Super Administrador',
-                  email: 'paulcalebfs123@gmail.com',
-                  role: 'admin',
-                  status: 'active',
-                  permissions: { ...ROLE_PRESETS.admin.permissions },
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                  mustChangePassword: false
-                };
-                try {
-                  await setDoc(userDocRef, {
-                    name: superAdminProfile.name,
-                    email: superAdminProfile.email,
-                    role: superAdminProfile.role,
-                    status: superAdminProfile.status,
-                    permissions: superAdminProfile.permissions,
-                    createdAt: superAdminProfile.createdAt,
-                    updatedAt: superAdminProfile.updatedAt,
-                    mustChangePassword: false
-                  });
-                } catch (e) {
-                  console.warn('Error al auto-crear perfil de superadmin:', e);
-                }
-                setCurrentUser(superAdminProfile);
-              } else {
-                console.warn('Documento de perfil de usuario no encontrado en Firestore para UID:', firebaseUser.uid);
-              }
+              await signOut(auth);
+              setCurrentUser(null);
+              setMustChangePassword(false);
+              setIsLoading(false);
             }
             setIsLoading(false);
           }, (err) => {
@@ -197,27 +170,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Por favor ingresa tu correo y contraseña.' };
     }
 
-    // Paso A: Bypass directo de emergencia para superadministrador
-    if (cleanEmail === 'paulcalebfs123@gmail.com') {
-      if (cleanPassword !== 'admin.2026') {
-        return { success: false, message: 'Contraseña incorrecta. La contraseña de administrador establecida es admin.2026' };
-      }
-      const superAdminProfile: UserProfile = {
-        id: 'admin_paulcalebfs123',
-        name: 'Super Administrador',
-        email: 'paulcalebfs123@gmail.com',
-        role: 'admin',
-        status: 'active',
-        permissions: { ...ROLE_PRESETS.admin.permissions },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        mustChangePassword: false
-      };
-      setCurrentUser(superAdminProfile);
-      setMustChangePassword(false);
-      return { success: true };
-    }
-
     try {
       const userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
       const uid = userCred.user.uid;
@@ -226,39 +178,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const userDocRef = doc(db, 'users', uid);
       const docSnap = await getDoc(userDocRef);
 
-      let profileData: any = docSnap.exists() ? docSnap.data() : null;
-
-      // Si es el superadministrador principal y aún no tiene documento en Firestore, auto-inicializarlo
-      if (!profileData && cleanEmail === 'paulcalebfs123@gmail.com') {
-        profileData = {
-          id: uid,
-          name: userCred.user.displayName || 'Super Administrador',
-          email: 'paulcalebfs123@gmail.com',
-          role: 'admin',
-          status: 'active',
-          permissions: { ...ROLE_PRESETS.admin.permissions },
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          mustChangePassword: false
-        };
-        try {
-          await setDoc(userDocRef, {
-            name: profileData.name,
-            email: profileData.email,
-            role: profileData.role,
-            status: profileData.status,
-            permissions: profileData.permissions,
-            createdAt: profileData.createdAt,
-            updatedAt: profileData.updatedAt,
-            mustChangePassword: false
-          });
-        } catch (e) {
-          console.warn('Error guardando perfil de superadmin en login:', e);
-        }
-      }
+      const profileData: any = docSnap.exists() ? docSnap.data() : null;
 
       if (!profileData) {
-        console.warn(`No se encontró documento de perfil en Firestore para UID: ${uid}`);
+        await signOut(auth);
+        return { success: false, message: 'Tu cuenta existe pero no tiene perfil. Contacta al administrador.' };
       }
 
       // Validar cuenta inactiva

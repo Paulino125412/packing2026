@@ -41,7 +41,6 @@ export function buildFullFiscalAddress(
   const addrUpper = addr.toUpperCase();
   const ubigeoSuffix = ubigeoParts.join(' - ').toUpperCase();
 
-  // If address already contains the full ubigeo pattern or district and department
   if (
     addrUpper.endsWith(ubigeoSuffix) ||
     addrUpper.includes(` - ${ubigeoSuffix}`) ||
@@ -50,7 +49,6 @@ export function buildFullFiscalAddress(
     return addr;
   }
 
-  // Format as: "DIRECCION - DISTRITO - PROVINCIA - DEPARTAMENTO"
   return `${addr} - ${ubigeoParts.join(' - ')}`;
 }
 
@@ -67,32 +65,44 @@ export async function lookupRucOrDni(number: string): Promise<SunatQueryResult> 
     return { success: false, error: 'El RUC debe tener 11 dígitos o el DNI 8 dígitos.' };
   }
 
+  if (!auth.currentUser) {
+    return { success: false, error: 'Tu sesión no está activa. Vuelve a iniciar sesión.' };
+  }
+
   // 1. Try our Express backend API endpoint with verified Firebase Bearer ID token
   try {
-    const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+    const idToken = await auth.currentUser.getIdToken();
     const apiRes = await fetch(`/api/sunat/${cleanNumber}`, {
       headers: {
         'Accept': 'application/json',
-        ...(idToken ? { 'Authorization': `Bearer ${idToken}` } : {})
+        'Authorization': `Bearer ${idToken}`
       }
     });
-    if (apiRes.ok) {
-      const data = await apiRes.json();
-      if (data.success) {
-        return data;
-      }
-    } else {
-      const errData = await apiRes.json().catch(() => null);
-      if (errData && errData.error) {
-        // If server explicitly returned an error message, save it
-        console.warn('Backend SUNAT endpoint message:', errData.error);
-      }
+
+    if (apiRes.status === 401) {
+      return { success: false, error: 'Tu sesión no está activa. Vuelve a iniciar sesión.' };
+    }
+    if (apiRes.status === 429) {
+      return { success: false, error: 'Demasiadas consultas, espera un minuto.' };
+    }
+
+    const errData = await apiRes.json().catch(() => null);
+
+    if (apiRes.status === 403) {
+      return { success: false, error: errData?.error || 'Acceso denegado.' };
+    }
+    if (apiRes.status === 503) {
+      return { success: false, error: errData?.error || 'Servicio de consulta no disponible temporalmente.' };
+    }
+
+    if (apiRes.ok && errData?.success) {
+      return errData;
     }
   } catch (err) {
     console.warn('Backend API request failed, trying client fallback:', err);
   }
 
-  // 2. Direct client fallback via CORS proxies if backend fails
+  // 2. Direct client fallback via CORS proxies if backend fails with 404 or network error
   if (cleanNumber.length === 11) {
     // Try AllOrigins CORS proxy
     try {
@@ -120,7 +130,6 @@ export async function lookupRucOrDni(number: string): Promise<SunatQueryResult> 
       console.warn('Client proxy fallback error:', e);
     }
 
-    // Fallback for RUC 10 (Persona Natural con Negocio) -> query DNI (digits 3..10)
     if (cleanNumber.startsWith('10')) {
       const dniPart = cleanNumber.substring(2, 10);
       try {

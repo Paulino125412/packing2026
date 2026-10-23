@@ -1,3 +1,4 @@
+import readline from 'node:readline';
 import { initializeApp, getApps, applicationDefault } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
@@ -11,11 +12,35 @@ if (!getApps().length) {
 }
 
 const auth = getAuth();
-const firestore = getFirestore();
+const firestore = (firebaseConfig as any).firestoreDatabaseId 
+  ? getFirestore((firebaseConfig as any).firestoreDatabaseId) 
+  : getFirestore();
+
+function askPassword(): Promise<string> {
+  if (process.env.ADMIN_NEW_PASSWORD) {
+    return Promise.resolve(process.env.ADMIN_NEW_PASSWORD.trim());
+  }
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+
+  return new Promise((resolve) => {
+    rl.question('Ingrese la nueva contraseña del administrador (mínimo 12 caracteres): ', (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
 
 async function setAdminPassword() {
   const email = 'paulcalebfs123@gmail.com';
-  const newPassword = 'admin.2026';
+  const newPassword = await askPassword();
+
+  if (!newPassword || newPassword.length < 12) {
+    console.error('Error: La contraseña debe tener al menos 12 caracteres.');
+    process.exit(1);
+  }
 
   try {
     let user;
@@ -40,10 +65,8 @@ async function setAdminPassword() {
       }
     }
 
-    // Set custom claims admin: true
     await auth.setCustomUserClaims(user.uid, { admin: true });
 
-    // Ensure Firestore profile exists and is active with role admin
     const adminPermissions = {
       inventoryView: true,
       inventoryCreate: true,
@@ -73,7 +96,7 @@ async function setAdminPassword() {
       updatedAt: new Date().toISOString()
     }, { merge: true });
 
-    console.log(`✓ Contraseña del administrador configurada exitosamente a: ${newPassword}`);
+    console.log(`✓ Contraseña del administrador actualizada exitosamente.`);
   } catch (error) {
     console.error('Error configurando contraseña de admin:', error);
     process.exit(1);

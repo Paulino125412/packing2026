@@ -1,6 +1,7 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "database": "ai-studio-remixpackinglist-393e19a7-b257-4d39-9f22-eb21be62160c"
   },
   "emulators": {
     "firestore": {

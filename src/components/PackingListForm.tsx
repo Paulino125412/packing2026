@@ -13,6 +13,7 @@ const PrintRestingGuideModal = React.lazy(() => import('./PrintRestingGuideModal
 import { useToast } from '../context/ToastContext';
 import { analyzeSystemError } from '../lib/diagnostics';
 import { isSanJacintoProvider, normalizeSanJacintoTono, isValidSanJacintoTono } from '../utils/sanJacintoRules';
+import { computeNextPackingNumber } from '../utils/counterUtils';
 
 interface PackingListFormProps {
   clients: Client[];
@@ -1568,19 +1569,8 @@ export default function PackingListForm({
           const counterRef = doc(db, 'counters', 'packingListNo');
           const counterSnap = await transaction.get(counterRef);
 
-          let nextValue = 1;
-          if (counterSnap.exists()) {
-            const counterData = counterSnap.data();
-            const currentVal = Number(counterData?.currentValue) || 0;
-            if (maxExistingNum >= currentVal) {
-              // Auto-sync counter to maxExistingNum + 1 instead of throwing error
-              nextValue = maxExistingNum + 1;
-            } else {
-              nextValue = currentVal + 1;
-            }
-          } else {
-            nextValue = maxExistingNum > 0 ? maxExistingNum + 1 : 1;
-          }
+          const currentVal = counterSnap.exists() ? Number(counterSnap.data()?.currentValue) || 0 : 0;
+          const nextValue = computeNextPackingNumber(currentVal, maxExistingNum, counterSnap.exists());
 
           const assignedPackingListNo = `PL-${String(nextValue).padStart(4, '0')}`;
 
