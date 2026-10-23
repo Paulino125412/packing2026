@@ -20,7 +20,12 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-const dbInstance = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId || '(default)');
+let dbInstance;
+try {
+  dbInstance = getFirestore(app);
+} catch {
+  dbInstance = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+}
 
 export const db = dbInstance;
 export const auth = getAuth(app);

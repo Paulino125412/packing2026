@@ -1194,9 +1194,11 @@ export default function App() {
         <div className={`${isSidebarExpanded ? 'p-3.5' : 'p-2 py-3 flex justify-center'} border-t border-app-border/40 bg-app-surface/30 shrink-0 transition-all`}>
           <div className={`flex items-center ${isSidebarExpanded ? 'gap-3' : 'justify-center'}`}>
             <div 
-              className="h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-sky-400 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm ring-2 ring-white/10 cursor-pointer transition-transform hover:scale-105"
+              className={`h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-sky-400 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm ring-2 ring-white/10 ${isAdmin ? 'cursor-pointer transition-transform hover:scale-105' : ''}`}
               title={`Usuario activo: ${currentUser.name} (${currentUser.email})`}
-              onClick={() => setIsChangePasswordOpen(true)}
+              onClick={() => {
+                if (isAdmin) setIsChangePasswordOpen(true);
+              }}
             >
               {currentUser.name.charAt(0).toUpperCase()}
             </div>
@@ -1217,13 +1219,15 @@ export default function App() {
                   <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-500/20">
                     {currentUser.role}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setIsChangePasswordOpen(true)}
-                    className="text-[10px] text-app-text/50 hover:text-app-text hover:underline cursor-pointer"
-                  >
-                    Clave
-                  </button>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={() => setIsChangePasswordOpen(true)}
+                      className="text-[10px] text-app-text/50 hover:text-app-text hover:underline cursor-pointer"
+                    >
+                      Clave
+                    </button>
+                  )}
                 </div>
               </div>
             )}
