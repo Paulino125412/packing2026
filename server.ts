@@ -260,7 +260,8 @@ const migrationRateLimitEmailMap = new Map<string, { count: number; resetTime: n
 
 // Helper to get Admin Firestore instance
 function getDb() {
-  return getAdminFirestore();
+  const dbId = (firebaseConfig as any).firestoreDatabaseId;
+  return dbId ? getAdminFirestore(dbId) : getAdminFirestore();
 }
 
 app.post("/api/auth/migrate-legacy", async (req, res) => {
@@ -326,7 +327,11 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
     try {
       usersSnap = await firestore.collection('users').where('email', '==', cleanEmail).get();
     } catch (fsErr: any) {
-      console.warn('Firestore query error in migrate-legacy:', fsErr?.message || fsErr);
+      if (fsErr?.code === 7 || fsErr?.message?.includes('PERMISSION_DENIED') || fsErr?.message?.includes('insufficient permissions')) {
+        console.error('A la service account le falta el rol "Cloud Datastore User":', fsErr?.message || fsErr);
+      } else {
+        console.warn('Firestore query error in migrate-legacy:', fsErr?.message || fsErr);
+      }
       return res.status(503).json({
         success: false,
         message: 'Servicio de autenticación no disponible temporalmente (Permisos de base de datos).'
@@ -425,8 +430,12 @@ app.post("/api/auth/migrate-legacy", async (req, res) => {
 
     return res.json({ success: true, migrated: true });
   } catch (err: any) {
-    console.error('Error in /api/auth/migrate-legacy:', err);
     if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED') || err?.message?.includes('insufficient permissions')) {
+      console.error('A la service account le falta el rol "Cloud Datastore User":', err?.message || err);
+    } else {
+      console.error('Error in /api/auth/migrate-legacy:', err);
+    }
+    if (err?.code === 7 || err?.code === 5 || err?.message?.includes('PERMISSION_DENIED') || err?.message?.includes('insufficient permissions') || err?.message?.includes('NOT_FOUND')) {
       return res.status(503).json({
         success: false,
         message: 'Servicio de autenticación no disponible temporalmente.'
@@ -1021,8 +1030,12 @@ async function requireFirebaseAuth(req: express.Request, res: express.Response, 
     };
     next();
   } catch (err: any) {
-    console.error('Error consultando perfil de usuario en Firestore:', err?.message || err);
     if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED') || err?.message?.includes('insufficient permissions')) {
+      console.error('A la service account le falta el rol "Cloud Datastore User":', err?.message || err);
+    } else {
+      console.error('Error consultando perfil de usuario en Firestore:', err?.message || err);
+    }
+    if (err?.code === 7 || err?.code === 5 || err?.message?.includes('PERMISSION_DENIED') || err?.message?.includes('insufficient permissions') || err?.message?.includes('NOT_FOUND')) {
       return res.status(503).json({
         success: false,
         error: 'Servicio de autenticación no disponible temporalmente.'

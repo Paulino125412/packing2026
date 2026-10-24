@@ -20,14 +20,8 @@ import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-let dbInstance;
-try {
-  dbInstance = getFirestore(app);
-} catch {
-  dbInstance = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
-}
-
-export const db = dbInstance;
+const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId;
+export const db = firestoreDbId ? getFirestore(app, firestoreDbId) : getFirestore(app);
 export const auth = getAuth(app);
 
 export enum OperationType {

@@ -170,48 +170,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: false, message: 'Por favor ingresa tu correo y contraseña.' };
     }
 
+    let userCred;
     try {
-      const userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
-      const uid = userCred.user.uid;
-
-      // Obtener o verificar perfil en Firestore
-      const userDocRef = doc(db, 'users', uid);
-      const docSnap = await getDoc(userDocRef);
-
-      const profileData: any = docSnap.exists() ? docSnap.data() : null;
-
-      if (!profileData) {
-        await signOut(auth);
-        return { success: false, message: 'Tu cuenta existe pero no tiene perfil. Contacta al administrador.' };
-      }
-
-      // Validar cuenta inactiva
-      if (profileData && profileData.status === 'inactive') {
-        await signOut(auth);
-        return { success: false, message: 'Esta cuenta ha sido desactivada por el administrador.' };
-      }
-
-      // Validar restricción de horario (6:00 AM a 8:00 PM hora de Lima, UTC-5) para no-admin
-      const isAdmin = profileData?.role === 'admin' || cleanEmail === 'paulcalebfs123@gmail.com';
-      if (!isAdmin) {
-        // Hora de Lima (UTC-5, constante sin horario de verano)
-        const limaDate = new Date(Date.now() - 5 * 60 * 60 * 1000);
-        const currentHour = limaDate.getUTCHours();
-        if (currentHour < 6 || currentHour >= 20) {
-          await signOut(auth);
-          return { 
-            success: false, 
-            message: 'Acceso denegado: El horario permitido para tu rol es de 6:00 AM a 8:00 PM. Fuera de este horario solo el Administrador tiene acceso.' 
-          };
-        }
-      }
-
-      // Actualizar lastLoginAt
-      try {
-        await updateDoc(userDocRef, { lastLoginAt: new Date().toISOString() });
-      } catch {}
-
-      return { success: true };
+      userCred = await signInWithEmailAndPassword(auth, cleanEmail, cleanPassword);
     } catch (firebaseErr: any) {
       const errorCode = firebaseErr?.code;
       const errorMessage = String(firebaseErr?.message || '');
@@ -265,6 +226,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       return { success: false, message: 'Credenciales inválidas o cuenta no registrada.' };
+    }
+
+    try {
+      const uid = userCred.user.uid;
+
+      // Obtener o verificar perfil en Firestore
+      const userDocRef = doc(db, 'users', uid);
+      const docSnap = await getDoc(userDocRef);
+
+      const profileData: any = docSnap.exists() ? docSnap.data() : null;
+
+      if (!profileData) {
+        await signOut(auth);
+        return { success: false, message: 'Tu cuenta existe pero no tiene perfil. Contacta al administrador.' };
+      }
+
+      // Validar cuenta inactiva
+      if (profileData && profileData.status === 'inactive') {
+        await signOut(auth);
+        return { success: false, message: 'Esta cuenta ha sido desactivada por el administrador.' };
+      }
+
+      // Validar restricción de horario (6:00 AM a 8:00 PM hora de Lima, UTC-5) para no-admin
+      const isAdmin = profileData?.role === 'admin' || cleanEmail === 'paulcalebfs123@gmail.com';
+      if (!isAdmin) {
+        // Hora de Lima (UTC-5, constante sin horario de verano)
+        const limaDate = new Date(Date.now() - 5 * 60 * 60 * 1000);
+        const currentHour = limaDate.getUTCHours();
+        if (currentHour < 6 || currentHour >= 20) {
+          await signOut(auth);
+          return { 
+            success: false, 
+            message: 'Acceso denegado: El horario permitido para tu rol es de 6:00 AM a 8:00 PM. Fuera de este horario solo el Administrador tiene acceso.' 
+          };
+        }
+      }
+
+      // Actualizar lastLoginAt
+      try {
+        await updateDoc(userDocRef, { lastLoginAt: new Date().toISOString() });
+      } catch {}
+
+      return { success: true };
+    } catch (profileErr: any) {
+      console.error('Error al consultar perfil en Firestore tras autenticación exitosa:', profileErr);
+      await signOut(auth).catch(() => {});
+      return { 
+        success: false, 
+        message: 'Sesión autenticada, pero ocurrió un problema al cargar tu perfil desde la base de datos. Inténtalo de nuevo.' 
+      };
     }
   };
 
