@@ -493,7 +493,7 @@ export default function SalesOrderManager({
     setDispatchAddress('');
     setFloorNumber('');
     setDispatchDate(getLocalDateStr());
-    setDispatchTime('09:00');
+    setDispatchTime('Por la mañana');
     setPaymentMethod('Contado');
 
     setBilledAmount('');
@@ -597,7 +597,23 @@ export default function SalesOrderManager({
 
     setLoading(true);
 
-    const generatedOrderNo = (editingId && editingOrderNo) ? editingOrderNo : `FV-${Date.now()}`;
+    const getNextOrderNo = (): string => {
+      let maxSeq = 0;
+      orders.forEach(o => {
+        const match = (o.orderNo || '').match(/^FV-(\d+)$/i);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          // Ignore legacy 13-digit Date.now() timestamps when computing sequential correlative
+          if (!isNaN(num) && num < 1000000 && num > maxSeq) {
+            maxSeq = num;
+          }
+        }
+      });
+      const nextNum = Math.max(maxSeq, orders.length) + 1;
+      return `FV-${String(nextNum).padStart(4, '0')}`;
+    };
+
+    const generatedOrderNo = (editingId && editingOrderNo) ? editingOrderNo : getNextOrderNo();
     const existingOrder = editingId ? orders.find(o => o.id === editingId) : null;
     const orderCreatedAt = editingId ? (existingOrder?.createdAt || editingCreatedAt || new Date().toISOString()) : new Date().toISOString();
 
@@ -1547,7 +1563,17 @@ export default function SalesOrderManager({
                   type="number"
                   step="0.01"
                   value={billedAmount}
-                  onChange={e => setBilledAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                  onChange={e => {
+                    if (e.target.value === '') {
+                      setBilledAmount('');
+                      setPendingAmount('');
+                    } else {
+                      const val = Number(e.target.value);
+                      setBilledAmount(val);
+                      const remaining = Math.max(0, Math.round((computedTotal - val) * 100) / 100);
+                      setPendingAmount(remaining);
+                    }
+                  }}
                   placeholder="0.00"
                   className="w-full px-3 py-2 border border-app-input-border rounded-lg bg-app-input-bg text-app-text text-xs font-mono font-bold shadow-2xs placeholder:text-app-text/35 focus:outline-hidden focus:border-app-primary focus:ring-2 focus:ring-app-primary/15 transition-colors"
                 />

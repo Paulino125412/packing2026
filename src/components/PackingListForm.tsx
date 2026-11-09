@@ -5,7 +5,7 @@ import { collection, doc } from 'firebase/firestore';
 import { Plus, Trash2, Calendar, ShoppingBag, CheckCircle2, ChevronRight, X, FileText, Layers, AlertTriangle, Clock, Scissors, Archive } from 'lucide-react';
 import SearchableCombobox from './SearchableCombobox';
 import { FormRollEntry, FormArticleGroup } from './packing-list-form/types';
-import { resolveColumnsForText, parseSanitizedNumeric, isObservationOrSummaryLine, MAX_ROLL_METERS } from './packing-list-form/ExcelPasteParser';
+import { resolveColumnsForText, parseSanitizedNumeric, isObservationOrSummaryLine, MAX_ROLL_METERS, parseBurstMetersInput } from './packing-list-form/ExcelPasteParser';
 import ClientSellerSelector from './packing-list-form/ClientSellerSelector';
 import ArticleGroupSection from './packing-list-form/ArticleGroupSection';
 import AlertBanner from './AlertBanner';
@@ -129,6 +129,14 @@ export default function PackingListForm({
   // Missing provider fields confirmation state
   const [missingFieldsConfirm, setMissingFieldsConfirm] = useState<{
     fields: string[];
+    onConfirm: () => void;
+  } | null>(null);
+
+  // Roll warning confirmation state (replaces window.confirm for >500m or depleted rolls)
+  const [rollWarningConfirm, setRollWarningConfirm] = useState<{
+    title: string;
+    subtitle: string;
+    warnings: string[];
     onConfirm: () => void;
   } | null>(null);
 
@@ -323,9 +331,19 @@ export default function PackingListForm({
     }
   }, [formProviderId, articles, editingPackingList]);
 
+  // Track which editingPackingList + isDuplicate state has already been prefilled
+  // so real-time Firestore updates (e.g. creating a client/article or stock changes) don't wipe unsaved edits
+  const loadedEditingKeyRef = useRef<string | null>(null);
+
   // Prefill form for Editing / Duplicating
   useEffect(() => {
     if (editingPackingList) {
+      const currentEditKey = `${editingPackingList.id}_${Boolean(isDuplicate)}`;
+      if (loadedEditingKeyRef.current === currentEditKey) {
+        return;
+      }
+      loadedEditingKeyRef.current = currentEditKey;
+
       const clientObj = clients.find(c => c.id === editingPackingList.clientId || c.name === editingPackingList.clientId);
       const sellerObj = sellers.find(s => s.id === editingPackingList.sellerId || s.name === editingPackingList.sellerId);
 
@@ -352,7 +370,7 @@ export default function PackingListForm({
       const initialProviderId = firstProvider?.id || firstItem?.providerId || (firstArticle ? firstArticle.providerId : '') || (providers[0]?.id || '');
       setFormProviderId(initialProviderId);
 
-      // Group items by articleId (or providerId + articleId)
+      // Group items by articleId + providerId + lot + partida + tono so multi-lot sections of the same article are not merged
       const groupsMap: Record<string, FormArticleGroup> = {};
       plItems.forEach((item, itemIdx) => {
         const articleObj = articles.find(a => a.id === item.articleId || a.name?.trim().toLowerCase() === (item.articleId || '').trim().toLowerCase());
@@ -362,38 +380,56 @@ export default function PackingListForm({
                             (articleObj ? providers.find(p => p.id === articleObj.providerId) : null);
         const resolvedProviderId = providerObj ? providerObj.id : (item.providerId || initialProviderId);
 
-        const groupKey = resolvedArticleId ? `art-${resolvedArticleId}` : `group-${itemIdx}`;
-
         const isSanJacinto = isSanJacintoProvider(providerObj || resolvedProviderId);
         const itemTono = isSanJacinto ? normalizeSanJacintoTono(item.tono) : (item.tono || '');
 
+        const groupKey = resolvedArticleId
+          ? `art-${resolvedArticleId}__${resolvedProviderId}__${(item.lot || '').trim()}__${(item.partida || '').trim()}__${itemTono.trim()}`
+          : `group-${itemIdx}`;
+
+        // Find max meters (current inventory stock + the meters allocated to this PL item if editing)
+        const rollInInv = item.rollId ? inventory.find(inv => inv.id === item.rollId) : null;
+        const canKeepInventoryLink = Boolean(
+          item.rollId &&
+          (!isDuplicate || (rollInInv && (rollInInv.currentMeters || 0) >= (item.meters || 0)))
+        );
+
+        let maxMeters: number | undefined;
+        if (canKeepInventoryLink) {
+          maxMeters = (rollInInv?.currentMeters || 0) + (isDuplicate ? 0 : item.meters);
+        }
+
         if (!groupsMap[groupKey]) {
           groupsMap[groupKey] = {
-            id: `group-prefill-${resolvedProviderId}-${resolvedArticleId || itemIdx}`,
+            id: `group-prefill-${resolvedProviderId}-${resolvedArticleId || itemIdx}-${Object.keys(groupsMap).length}`,
             providerId: resolvedProviderId,
             articleId: resolvedArticleId,
             lot: item.lot || '',
             partida: item.partida || '',
             tono: itemTono,
-            source: item.rollId ? 'inventory' : 'custom',
+            source: canKeepInventoryLink ? 'inventory' : 'custom',
             rolls: [],
             hasProcessedExcel: false
           };
-        }
-        
-        // Find max meters (current inventory stock + the meters allocated to this PL item if editing)
-        const rollInInv = item.rollId ? inventory.find(inv => inv.id === item.rollId) : null;
-        let maxMeters: number | undefined;
-        if (item.rollId) {
-          maxMeters = (rollInInv?.currentMeters || 0) + (isDuplicate ? 0 : item.meters);
+        } else if (!canKeepInventoryLink && groupsMap[groupKey].source === 'inventory') {
+          // If any item in a duplicated group lacks sufficient inventory stock, switch the group to custom direct entry
+          groupsMap[groupKey].source = 'custom';
+          groupsMap[groupKey].rolls = groupsMap[groupKey].rolls.map(existingRoll => ({
+            ...existingRoll,
+            rollId: undefined,
+            maxMeters: undefined
+          }));
         }
 
+        const effectiveRollId = (groupsMap[groupKey].source === 'inventory' && canKeepInventoryLink) ? item.rollId : undefined;
+        const effectiveMaxMeters = (groupsMap[groupKey].source === 'inventory' && canKeepInventoryLink) ? maxMeters : undefined;
+
         groupsMap[groupKey].rolls.push({
-          id: item.id || `roll-prefill-${itemIdx}-${groupsMap[groupKey].rolls.length}`,
-          rollId: item.rollId,
+          id: isDuplicate ? generateUniqueId('roll-') : (item.id || `roll-prefill-${itemIdx}-${groupsMap[groupKey].rolls.length}`),
+          rollId: effectiveRollId,
           rollNumber: item.rollNumber || '',
           meters: item.meters || 0,
-          maxMeters,
+          maxMeters: effectiveMaxMeters,
           lot: item.lot || '',
           partida: item.partida || '',
           tono: itemTono,
@@ -438,8 +474,9 @@ export default function PackingListForm({
       }
 
       setArticleGroups(reconstructedGroups);
-    } else {
-      // Clear form when editingPackingList is null
+    } else if (loadedEditingKeyRef.current !== null) {
+      loadedEditingKeyRef.current = null;
+      // Clear form when exiting editingPackingList mode
       setPackingType('nuevo');
       setClientId('');
       setSellerId('');
@@ -691,9 +728,184 @@ export default function PackingListForm({
     toast.info('Se cambió el despacho a modo "P. List Corte". Todos tus artículos y metrajes se mantuvieron intactos.');
   };
 
+  // Compute recent clients and recent/client-preferred articles for 1-click selection
+  const recentClients = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Client[] = [];
+    for (const pl of packingLists) {
+      if (pl.clientId && !seen.has(pl.clientId)) {
+        const cObj = clients.find(c => c.id === pl.clientId);
+        if (cObj) {
+          seen.add(cObj.id);
+          list.push(cObj);
+          if (list.length >= 5) break;
+        }
+      }
+    }
+    if (list.length < 5) {
+      for (const c of clients) {
+        if (!seen.has(c.id)) {
+          seen.add(c.id);
+          list.push(c);
+          if (list.length >= 5) break;
+        }
+      }
+    }
+    return list;
+  }, [packingLists, clients]);
+
+  const recentArticles = useMemo(() => {
+    const seen = new Set<string>();
+    const list: Article[] = [];
+    // 1. Prioritize articles dispatched to the currently selected client
+    if (clientId) {
+      for (const pl of packingLists) {
+        if (pl.clientId === clientId && Array.isArray(pl.items)) {
+          for (const item of pl.items) {
+            if (item.articleId && !seen.has(item.articleId)) {
+              const aObj = articles.find(a => a.id === item.articleId || a.name === item.articleId);
+              if (aObj && !seen.has(aObj.id)) {
+                seen.add(aObj.id);
+                list.push(aObj);
+                if (list.length >= 6) return list;
+              }
+            }
+          }
+        }
+      }
+    }
+    // 2. Next, most recently dispatched articles overall
+    for (const pl of packingLists) {
+      if (Array.isArray(pl.items)) {
+        for (const item of pl.items) {
+          if (item.articleId && !seen.has(item.articleId)) {
+            const aObj = articles.find(a => a.id === item.articleId || a.name === item.articleId);
+            if (aObj && !seen.has(aObj.id)) {
+              seen.add(aObj.id);
+              list.push(aObj);
+              if (list.length >= 6) return list;
+            }
+          }
+        }
+      }
+    }
+    // 3. Fallback to catalog articles
+    for (const a of articles) {
+      if (!seen.has(a.id)) {
+        seen.add(a.id);
+        list.push(a);
+        if (list.length >= 6) break;
+      }
+    }
+    return list;
+  }, [packingLists, articles, clientId]);
+
+  const handleCloneArticleGroup = (groupId: string) => {
+    setArticleGroups(prev => {
+      const idx = prev.findIndex(g => g.id === groupId);
+      if (idx === -1) return prev;
+      const sourceGroup = prev[idx];
+      const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === sourceGroup.providerId));
+      const clonedGroup: FormArticleGroup = {
+        id: generateUniqueId('group-'),
+        providerId: sourceGroup.providerId,
+        articleId: sourceGroup.articleId,
+        lot: sourceGroup.lot || '',
+        partida: sourceGroup.partida || '',
+        tono: isSanJacinto ? '-' : '',
+        source: sourceGroup.source,
+        rolls: []
+      };
+      const next = [...prev];
+      next.splice(idx + 1, 0, clonedGroup);
+      return next;
+    });
+    toast.info('Sección duplicada con el mismo artículo. Ingrese el nuevo Tono/Lote y metrajes.');
+  };
+
+  const handleClearGroupRolls = (groupId: string) => {
+    setArticleGroups(prev => prev.map(g => g.id === groupId ? { ...g, rolls: [], hasProcessedExcel: false } : g));
+  };
+
+  const handleToggleWarehouseRoll = (groupId: string, warehouseRoll: RollItem) => {
+    setArticleGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      const alreadyExists = g.rolls.some(r => r.rollId === warehouseRoll.id);
+      if (alreadyExists) {
+        return {
+          ...g,
+          rolls: g.rolls.filter(r => r.rollId !== warehouseRoll.id)
+        };
+      }
+      const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === g.providerId));
+      const newRoll: FormRollEntry = {
+        id: generateUniqueId('roll-'),
+        rollId: warehouseRoll.id,
+        rollNumber: warehouseRoll.rollNumber,
+        meters: warehouseRoll.currentMeters,
+        maxMeters: warehouseRoll.currentMeters,
+        lot: warehouseRoll.lot || g.lot || '',
+        partida: warehouseRoll.partida || g.partida || '',
+        tono: isSanJacinto
+          ? normalizeSanJacintoTono(warehouseRoll.tono || g.tono || '-')
+          : (warehouseRoll.tono || g.tono || ''),
+        width: warehouseRoll.width || '',
+        weight: warehouseRoll.weight || ''
+      };
+      // Remove any blank unassigned placeholder row when clicking a real stock roll
+      const cleanedExisting = g.rolls.filter(r => Boolean(r.rollId) || Number(r.meters) > 0);
+      return {
+        ...g,
+        rolls: [...cleanedExisting, newRoll]
+      };
+    }));
+  };
+
+  const handleSelectAllWarehouseRolls = (groupId: string, warehouseRolls: RollItem[]) => {
+    setArticleGroups(prev => prev.map(g => {
+      if (g.id !== groupId) return g;
+      const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === g.providerId));
+      const cleanedExisting = g.rolls.filter(r => Boolean(r.rollId) || Number(r.meters) > 0);
+      const existingIds = new Set(cleanedExisting.map(r => r.rollId).filter(Boolean));
+      const addedRolls: FormRollEntry[] = [];
+      warehouseRolls.forEach(wr => {
+        if (!existingIds.has(wr.id) && wr.currentMeters > 0) {
+          existingIds.add(wr.id);
+          addedRolls.push({
+            id: generateUniqueId('roll-'),
+            rollId: wr.id,
+            rollNumber: wr.rollNumber,
+            meters: wr.currentMeters,
+            maxMeters: wr.currentMeters,
+            lot: wr.lot || g.lot || '',
+            partida: wr.partida || g.partida || '',
+            tono: isSanJacinto
+              ? normalizeSanJacintoTono(wr.tono || g.tono || '-')
+              : (wr.tono || g.tono || ''),
+            width: wr.width || '',
+            weight: wr.weight || ''
+          });
+        }
+      });
+      return {
+        ...g,
+        rolls: [...cleanedExisting, ...addedRolls]
+      };
+    }));
+  };
+
   const handleRollKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, groupId: string, rollIndex: number) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      const targetGroup = articleGroups.find(g => g.id === groupId);
+      if (targetGroup && rollIndex < targetGroup.rolls.length - 1) {
+        const nextInput = document.getElementById(`meters-${groupId}-${rollIndex + 1}`) as HTMLInputElement;
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.select();
+        }
+        return;
+      }
       handleAddRollToGroup(groupId);
       setTimeout(() => {
         const nextInput = document.getElementById(`meters-${groupId}-${rollIndex + 1}`) as HTMLInputElement;
@@ -701,26 +913,40 @@ export default function PackingListForm({
           nextInput.focus();
           nextInput.select();
         }
-      }, 80);
+      }, 60);
     }
+  };
+
+  const getNextSequentialRollNumber = (existingRolls: FormRollEntry[], mode: string): string => {
+    const defaultPrefix = mode === 'corte' ? 'CORTE-' : 'ROLLO-';
+    const existingSet = new Set(existingRolls.map(r => (r.rollNumber || '').trim().toLowerCase()).filter(Boolean));
+    let prefix = defaultPrefix;
+    let maxNum = existingRolls.length;
+
+    existingRolls.forEach(r => {
+      const m = (r.rollNumber || '').trim().match(/^(.*?)(\d+)$/);
+      if (m) {
+        const num = parseInt(m[2], 10);
+        if (!isNaN(num) && num >= maxNum) {
+          maxNum = num;
+          if (m[1]) prefix = m[1];
+        }
+      }
+    });
+
+    let candidateNum = maxNum + 1;
+    let candidate = `${prefix}${candidateNum}`;
+    while (existingSet.has(candidate.toLowerCase())) {
+      candidateNum++;
+      candidate = `${prefix}${candidateNum}`;
+    }
+    return candidate;
   };
 
   const handleAddRollToGroup = (groupId: string) => {
     setArticleGroups(prev => prev.map(g => {
       if (g.id === groupId) {
-        // Suggest next roll or cut number
-        const rollsCount = g.rolls.length;
-        let nextRollNumber = packingType === 'nuevo' ? `ROLLO-${rollsCount + 1}` : `CORTE-${rollsCount + 1}`;
-        
-        const lastRollNum = g.rolls[rollsCount - 1]?.rollNumber || '';
-        if (lastRollNum) {
-          const match = lastRollNum.match(/^(.*?)(\d+)$/);
-          if (match) {
-            const prefix = match[1];
-            const num = parseInt(match[2], 10) + 1;
-            nextRollNumber = `${prefix}${num}`;
-          }
-        }
+        const nextRollNumber = getNextSequentialRollNumber(g.rolls, packingType);
 
         const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === g.providerId));
         const rollTono = isSanJacinto ? normalizeSanJacintoTono(g.tono || '-') : (g.tono || '');
@@ -732,7 +958,7 @@ export default function PackingListForm({
             {
               id: generateUniqueId('roll-'),
               rollNumber: nextRollNumber,
-              meters: packingType === 'corte' ? '' : (packingType === 'nuevo' ? 50 : 0),
+              meters: '',
               lot: g.lot || '',
               partida: g.partida || '',
               tono: rollTono,
@@ -803,6 +1029,43 @@ export default function PackingListForm({
     const group = articleGroups.find(g => g.id === groupId);
     if (!group) return;
     const pConfig = providers.find(p => p.id === group.providerId);
+    const isExcelOnly = Boolean(pConfig && (pConfig.hasRollNo ?? true) && pConfig.hasWidth && pConfig.hasWeight);
+    const isSanJacinto = isSanJacintoProvider(pConfig);
+
+    // Fast path: Modo Ráfaga (single-line space/comma/plus separated meters or multipliers like "50x4" or "48.5 52.1 50")
+    if (!isExcelOnly && !manualMapping) {
+      const burstMeters = parseBurstMetersInput(text);
+      if (burstMeters && burstMeters.length > 0) {
+        setArticleGroups(prev => prev.map(g => {
+          if (g.id !== groupId) return g;
+          // Remove any trailing blank manual rows before appending burst rows
+          const newRolls = g.rolls.filter(r => Boolean(r.rollId) || (r.meters !== '' && Number(r.meters) > 0));
+          const finalRollTono = isSanJacinto
+            ? normalizeSanJacintoTono(g.tono || '-')
+            : (g.tono || '');
+
+          burstMeters.forEach(mVal => {
+            const nextRollNum = getNextSequentialRollNumber(newRolls, packingType);
+            newRolls.push({
+              id: generateUniqueId('roll-'),
+              rollNumber: nextRollNum,
+              meters: mVal,
+              lot: g.lot || '',
+              partida: g.partida || '',
+              tono: finalRollTono,
+              width: '',
+              weight: ''
+            });
+          });
+
+          return {
+            ...g,
+            rolls: newRolls
+          };
+        }));
+        return;
+      }
+    }
 
     const resolution = resolveColumnsForText(text, pConfig, manualMapping);
     const {
@@ -815,8 +1078,20 @@ export default function PackingListForm({
       weightColIdx,
       startLineIndex,
       lines,
-      splitIntoColumns
+      splitIntoColumns,
+      excludedObservationLine
     } = resolution;
+
+    if (excludedObservationLine) {
+      const obsText = excludedObservationLine.trim();
+      if (obsText) {
+        setNotes(prev => {
+          if (!prev.trim()) return obsText;
+          if (prev.includes(obsText)) return prev;
+          return `${prev.trim()}\n${obsText}`;
+        });
+      }
+    }
 
     const parseMetersVal = (val: string): number | null => {
       if (!val) return null;
@@ -842,8 +1117,6 @@ export default function PackingListForm({
     }
 
     const parsedRows: ParsedRow[] = [];
-
-    const isSanJacinto = isSanJacintoProvider(pConfig);
 
     for (let i = startLineIndex; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -916,17 +1189,8 @@ export default function PackingListForm({
           }
 
           let finalRollNum = row.rollNumber;
-          if (!finalRollNum) {
-            finalRollNum = packingType === 'corte' ? `CORTE-${rollsCount + 1}` : `ROLLO-${rollsCount + 1}`;
-            const lastRollNum = newRolls[newRolls.length - 1]?.rollNumber || '';
-            if (lastRollNum) {
-              const match = lastRollNum.match(/^(.*?)(\d+)$/);
-              if (match) {
-                const prefix = match[1];
-                const num = parseInt(match[2], 10) + 1;
-                finalRollNum = `${prefix}${num}`;
-              }
-            }
+          if (!finalRollNum || packingType === 'corte') {
+            finalRollNum = getNextSequentialRollNumber(newRolls, packingType);
           }
 
           const finalRollTono = isSanJacinto
@@ -968,23 +1232,34 @@ export default function PackingListForm({
           const matchingArticles = articles.filter(a => a.providerId === value);
           const nextArticleId = matchingArticles[0]?.id || '';
           const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === value));
+          const keepCustomRolls = g.source === 'custom';
           return {
             ...g,
             providerId: value,
-            articleId: nextArticleId,
-            lot: '',
-            partida: '',
-            tono: isSanJacinto ? '-' : '',
-            hasProcessedExcel: false,
-            rolls: []
+            articleId: keepCustomRolls && g.articleId ? g.articleId : nextArticleId,
+            lot: keepCustomRolls ? g.lot : '',
+            partida: keepCustomRolls ? g.partida : '',
+            tono: isSanJacinto ? normalizeSanJacintoTono(g.tono || '-') : (keepCustomRolls ? g.tono : ''),
+            hasProcessedExcel: keepCustomRolls ? g.hasProcessedExcel : false,
+            rolls: keepCustomRolls ? g.rolls : []
           };
         }
         if (field === 'articleId') {
+          const selectedArt = articles.find(a => a.id === value || a.name === value);
+          const resolvedProviderId = selectedArt?.providerId || g.providerId || formProviderId || providers[0]?.id || '';
+          const isSanJacinto = isSanJacintoProvider(providers.find(p => p.id === resolvedProviderId));
+          const keepCustomRolls = g.source === 'custom';
           return {
             ...g,
-            articleId: value,
-            hasProcessedExcel: false,
-            rolls: []
+            articleId: selectedArt ? selectedArt.id : value,
+            providerId: resolvedProviderId,
+            tono: isSanJacinto ? normalizeSanJacintoTono(g.tono || '-') : g.tono,
+            hasProcessedExcel: keepCustomRolls ? g.hasProcessedExcel : false,
+            rolls: keepCustomRolls
+              ? (isSanJacinto
+                  ? g.rolls.map(r => ({ ...r, tono: normalizeSanJacintoTono(r.tono || g.tono || '-') }))
+                  : g.rolls)
+              : []
           };
         }
         if (field === 'source') {
@@ -1002,16 +1277,33 @@ export default function PackingListForm({
           return {
             ...g,
             tono: uppercaseVal,
-            rolls: isSanJacinto
-              ? g.rolls.map(r => ({
-                  ...r,
-                  tono: (!r.tono || r.tono === '-' || r.tono === g.tono) ? uppercaseVal : r.tono
-                }))
-              : g.rolls
+            rolls: g.rolls.map(r => ({
+              ...r,
+              tono: (!r.tono || (isSanJacinto && r.tono === '-') || r.tono === g.tono) ? uppercaseVal : r.tono
+            }))
+          };
+        }
+        if (field === 'lot') {
+          return {
+            ...g,
+            lot: value,
+            rolls: g.rolls.map(r => ({
+              ...r,
+              lot: (!r.lot || r.lot === g.lot) ? value : r.lot
+            }))
+          };
+        }
+        if (field === 'partida') {
+          return {
+            ...g,
+            partida: value,
+            rolls: g.rolls.map(r => ({
+              ...r,
+              partida: (!r.partida || r.partida === g.partida) ? value : r.partida
+            }))
           };
         }
         
-        // Master inputs lot, partida, and tono are updated here and will only be applied to newly created rolls.
         return { ...g, [field]: value };
       }
       return g;
@@ -1100,13 +1392,21 @@ export default function PackingListForm({
     }
 
     // Article groups validations & missing fields collection
-    // Create decoupled deep copy to avoid mutating React state directly
-    const groupsForSave = articleGroups.map(g => ({
-      ...g,
-      rolls: g.rolls.map(r => ({ ...r }))
-    }));
+    // Create decoupled deep copy to avoid mutating React state directly,
+    // and auto-trim trailing blank manual rows (e.g. from pressing Enter one extra time) when the group already has valid rolls.
+    const rawGroupsCopy = articleGroups.map(g => {
+      const copiedRolls = g.rolls.map(r => ({ ...r }));
+      const validRolls = copiedRolls.filter(r => Boolean(r.rollId) || (r.meters !== '' && !isNaN(Number(r.meters)) && Number(r.meters) > 0));
+      return {
+        ...g,
+        rolls: validRolls.length > 0 ? validRolls : copiedRolls
+      };
+    });
+    const nonEmptyGroups = rawGroupsCopy.filter(g => Boolean(g.articleId) || g.rolls.length > 0);
+    const groupsForSave = nonEmptyGroups.length > 0 ? nonEmptyGroups : rawGroupsCopy;
 
     const missingFieldsSet = new Set<string>();
+    const highMeterWarnings: string[] = [];
 
     for (let gIdx = 0; gIdx < groupsForSave.length; gIdx++) {
       const g = groupsForSave[gIdx];
@@ -1214,10 +1514,10 @@ export default function PackingListForm({
           toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
           return;
         }
-        if (packingType !== 'corte' && numMeters < 10.00) {
+        if ((packingType === 'nuevo' || packingType === 'rollo') && numMeters < 10.00) {
           const diag = {
             title: 'Metraje no permitido en Rollos',
-            message: `Artículo #${gIdx + 1}, Rollo #${rIdx + 1}: El metraje ingresado (${numMeters}m) no está permitido en rollos. En la modalidad de rollos nuevos o antiguos el metraje debe ser de mínimo 10.00m. Si se trata de un corte o retazo, debes usar la modalidad de CORTES.`,
+            message: `Artículo #${gIdx + 1}, Rollo #${rIdx + 1}: El metraje ingresado (${numMeters}m) no está permitido en rollos. En la modalidad de rollos nuevos el metraje debe ser de mínimo 10.00m. Si se trata de un corte o retazo, debes usar la modalidad de CORTES.`,
             rootCause: `En la modalidad "${packingType.toUpperCase()}", los rollos no pueden ser menores a 10.00 metros.`,
             solution: 'Haz clic en "Cambiar a Modo CORTES" para convertir este despacho a cortes manteniendo todos tus datos, o ajusta el metraje a ≥ 10.00m.'
           };
@@ -1238,141 +1538,170 @@ export default function PackingListForm({
         }
 
         if (numMeters > MAX_ROLL_METERS) {
-          const confirmed = window.confirm(`El metraje ${numMeters} m es inusualmente alto. ¿Es correcto?`);
-          if (!confirmed) {
-            setLoading(false);
-            return;
-          }
+          highMeterWarnings.push(
+            `Artículo #${gIdx + 1}, Rollo #${rIdx + 1}${r.rollNumber ? ` (${r.rollNumber})` : ''}: El metraje ingresado (${numMeters} m) supera los ${MAX_ROLL_METERS} m habituales.`
+          );
         }
       }
     }
 
     // Execute atomic save logic with omitted fields recorded
-    const executeSave = async (omittedList: string[]) => {
+    const executeSave = async (omittedList: string[], skipRollWarnings = false) => {
       if (loading || isSubmittingRef.current) return;
       isSubmittingRef.current = true;
       setLoading(true);
 
       try {
-        // Pre-generate unique ROLLO-DIRECT numbers for any rolls missing rollNumber
-        const usedRollNumbersInDoc = new Set<string>();
+        // Ensure providerId fallback on every group before saving
+        const fallbackProvId = formProviderId || providers[0]?.id || '';
         for (const g of groupsForSave) {
-          for (const r of g.rolls) {
-            if (r.rollNumber && r.rollNumber.trim()) {
-              usedRollNumbersInDoc.add(r.rollNumber.trim().toLowerCase());
+          if (!g.providerId) {
+            const artObj = articles.find(a => a.id === g.articleId || a.name === g.articleId);
+            g.providerId = artObj?.providerId || fallbackProvId;
+          }
+        }
+
+        // Pre-generate unique sequential numbers for any rolls missing rollNumber or in corte/antiguo modes where rollNumber is hidden
+        const usedRollNumbersInDoc = new Set<string>();
+        if (packingType === 'nuevo' || packingType === 'rollo') {
+          for (const g of groupsForSave) {
+            for (const r of g.rolls) {
+              if (r.rollNumber && r.rollNumber.trim()) {
+                usedRollNumbersInDoc.add(`${g.articleId}__${r.rollNumber.trim().toLowerCase()}`);
+              }
             }
           }
         }
 
         let directCounter = 1;
         for (const g of groupsForSave) {
-          for (const r of g.rolls) {
-            if (!r.rollNumber || !r.rollNumber.trim()) {
+          for (let rIdx = 0; rIdx < g.rolls.length; rIdx++) {
+            const r = g.rolls[rIdx];
+            const currentKey = r.rollNumber?.trim() ? `${g.articleId}__${r.rollNumber.trim().toLowerCase()}` : '';
+            const needsAutoNumber =
+              !r.rollNumber ||
+              !r.rollNumber.trim() ||
+              ((packingType === 'corte' || packingType === 'antiguo') && usedRollNumbersInDoc.has(currentKey));
+
+            if (needsAutoNumber) {
               let candidateNo = '';
               do {
-                candidateNo = `ROLLO-DIRECT-${String(directCounter).padStart(4, '0')}`;
+                candidateNo = packingType === 'corte'
+                  ? `CORTE-${directCounter}`
+                  : `ROLLO-DIRECT-${String(directCounter).padStart(4, '0')}`;
                 directCounter++;
-              } while (usedRollNumbersInDoc.has(candidateNo.toLowerCase()));
-              usedRollNumbersInDoc.add(candidateNo.toLowerCase());
+              } while (usedRollNumbersInDoc.has(`${g.articleId}__${candidateNo.toLowerCase()}`));
+              usedRollNumbersInDoc.add(`${g.articleId}__${candidateNo.toLowerCase()}`);
               r.rollNumber = candidateNo;
+            } else {
+              usedRollNumbersInDoc.add(currentKey);
             }
           }
         }
 
         // Validate duplicate rollIds
-    const seenRollIds: { [rollId: string]: string } = {};
-    for (const g of groupsForSave) {
-      for (const r of g.rolls) {
-        if (r.rollId) {
-          if (seenRollIds[r.rollId]) {
-            const diag = {
-              title: 'Rollo Repetido en el Despacho',
-              message: `El rollo '${r.rollNumber}' está siendo usado más de una vez en este despacho.`,
-              rootCause: 'El mismo rollo físico de inventario fue seleccionado en múltiples filas.',
-              solution: 'Combina las cantidades en una sola fila o selecciona rollos diferentes.'
-            };
-            setError(diag);
-            toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
-            return;
-          }
-          seenRollIds[r.rollId] = r.rollNumber;
-        }
-      }
-    }
-
-    // Validate duplicate roll numbers per article (for direct entry or excel paste)
-    const seenRollNumbers: { [key: string]: boolean } = {};
-    for (const g of groupsForSave) {
-      for (const r of g.rolls) {
-        if (r.rollNumber && r.rollNumber.trim()) {
-          const normalizedNum = r.rollNumber.trim().toLowerCase();
-          const key = `${g.articleId}__${normalizedNum}`;
-          if (seenRollNumbers[key]) {
-            const diag = {
-              title: 'Rollo Repetido en el Despacho',
-              message: `El rollo '${r.rollNumber}' está duplicado para el mismo artículo en este despacho.`,
-              rootCause: 'Se ingresó el mismo número de rollo en más de una fila del mismo artículo.',
-              solution: 'Elimine la fila duplicada o modifique el número de rollo antes de continuar.'
-            };
-            setError(diag);
-            toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
-            return;
-          }
-          seenRollNumbers[key] = true;
-        }
-      }
-    }
-
-    // Deep check across entire inventory for exhausted / already used rolls
-    for (let gIdx = 0; gIdx < groupsForSave.length; gIdx++) {
-      const g = groupsForSave[gIdx];
-      for (let rIdx = 0; rIdx < g.rolls.length; rIdx++) {
-        const r = g.rolls[rIdx];
-        if (r.rollNumber && r.rollNumber.trim()) {
-          let matchedRoll = effectiveFullInventory.find(
-            invRoll => invRoll.articleId === g.articleId &&
-                       invRoll.rollNumber.trim().toLowerCase() === r.rollNumber.trim().toLowerCase()
-          );
-
-          if (!matchedRoll) {
-            try {
-              const dbRoll = await findRollInInventory(r.rollNumber.trim(), g.articleId || undefined);
-              if (dbRoll) {
-                matchedRoll = dbRoll;
+        const seenRollIds: { [rollId: string]: string } = {};
+        for (const g of groupsForSave) {
+          for (const r of g.rolls) {
+            if (r.rollId) {
+              if (seenRollIds[r.rollId]) {
+                const diag = {
+                  title: 'Rollo Repetido en el Despacho',
+                  message: `El rollo '${r.rollNumber}' está siendo usado más de una vez en este despacho.`,
+                  rootCause: 'El mismo rollo físico de inventario fue seleccionado en múltiples filas.',
+                  solution: 'Combina las cantidades en una sola fila o selecciona rollos diferentes.'
+                };
+                setError(diag);
+                toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
+                return;
               }
-            } catch (err) {
-              console.warn("Error looking up roll in DB:", err);
+              seenRollIds[r.rollId] = r.rollNumber;
             }
           }
+        }
 
-          if (matchedRoll && matchedRoll.currentMeters === 0 && (!editingPackingList || !editingPackingList.items.some(item => item.rollId === matchedRoll!.id))) {
-            let usedPL = packingLists.find(pl => pl.items.some(item => item.rollId === matchedRoll!.id));
-            if (!usedPL) {
-              try {
-                const allPLs = await fetchAllPackingLists();
-                usedPL = allPLs.find(pl => pl.items.some(item => item.rollId === matchedRoll!.id));
-              } catch (err) {
-                console.warn("Error fetching all packing lists for roll check:", err);
+        // Validate duplicate roll numbers per article (only when rollNumber is visible/editable in nuevo or rollo mode)
+        if (packingType === 'nuevo' || packingType === 'rollo') {
+          const seenRollNumbers: { [key: string]: boolean } = {};
+          for (const g of groupsForSave) {
+            for (const r of g.rolls) {
+              if (r.rollNumber && r.rollNumber.trim()) {
+                const normalizedNum = r.rollNumber.trim().toLowerCase();
+                const key = `${g.articleId}__${normalizedNum}`;
+                if (seenRollNumbers[key]) {
+                  const diag = {
+                    title: 'Rollo Repetido en el Despacho',
+                    message: `El rollo '${r.rollNumber}' está duplicado para el mismo artículo en este despacho.`,
+                    rootCause: 'Se ingresó el mismo número de rollo en más de una fila del mismo artículo.',
+                    solution: 'Elimine la fila duplicada o modifique el número de rollo antes de continuar.'
+                  };
+                  setError(diag);
+                  toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
+                  return;
+                }
+                seenRollNumbers[key] = true;
               }
             }
-            const plNo = usedPL ? usedPL.packingListNo : 'desconocido';
-            
-            const confirmed = window.confirm(
-              `ADVERTENCIA: El rollo "${r.rollNumber}" ya figura como AGOTADO (0 metros) en el inventario. Se utilizó previamente en el Packing List N° ${plNo}.\n\n¿Desea continuar de todas formas con este despacho?`
+          }
+        }
+
+    // Deep check across entire inventory for exhausted / already used rolls & high meter warnings
+    const depletedWarnings: string[] = [];
+    if (!skipRollWarnings) {
+      for (let gIdx = 0; gIdx < groupsForSave.length; gIdx++) {
+        const g = groupsForSave[gIdx];
+        for (let rIdx = 0; rIdx < g.rolls.length; rIdx++) {
+          const r = g.rolls[rIdx];
+          if (r.rollNumber && r.rollNumber.trim()) {
+            let matchedRoll = effectiveFullInventory.find(
+              invRoll => invRoll.articleId === g.articleId &&
+                         invRoll.rollNumber.trim().toLowerCase() === r.rollNumber.trim().toLowerCase()
             );
-            if (!confirmed) {
-              const diag = {
-                title: 'Rollo Ya Agotado en Almacén',
-                message: `El rollo "${r.rollNumber}" ya fue utilizado y agotado en el Packing List N° ${plNo}.`,
-                rootCause: 'El identificador de rollo ingresado corresponde a un rollo con stock 0 metros.',
-                solution: 'Verifique si el número es correcto o elija otro rollo disponible en almacén.'
-              };
-              setError(diag);
-              toast.warning(diag.message, { title: diag.title, rootCause: diag.rootCause, solution: diag.solution });
-              return;
+
+            if (!matchedRoll) {
+              try {
+                const dbRoll = await findRollInInventory(r.rollNumber.trim(), g.articleId || undefined);
+                if (dbRoll) {
+                  matchedRoll = dbRoll;
+                }
+              } catch (err) {
+                console.warn("Error looking up roll in DB:", err);
+              }
+            }
+
+            if (matchedRoll && matchedRoll.currentMeters === 0 && (!editingPackingList || !editingPackingList.items.some(item => item.rollId === matchedRoll!.id))) {
+              let usedPL = packingLists.find(pl => pl.items.some(item => item.rollId === matchedRoll!.id));
+              if (!usedPL) {
+                try {
+                  const allPLs = await fetchAllPackingLists();
+                  usedPL = allPLs.find(pl => pl.items.some(item => item.rollId === matchedRoll!.id));
+                } catch (err) {
+                  console.warn("Error fetching all packing lists for roll check:", err);
+                }
+              }
+              const plNo = usedPL ? usedPL.packingListNo : 'desconocido';
+              depletedWarnings.push(
+                `El rollo "${r.rollNumber}" figura como AGOTADO (0 m) en el inventario (utilizado previamente en el Packing List N° ${plNo}).`
+              );
             }
           }
         }
+      }
+
+      const combinedWarnings = [...highMeterWarnings, ...depletedWarnings];
+      if (combinedWarnings.length > 0) {
+        setLoading(false);
+        isSubmittingRef.current = false;
+        setRollWarningConfirm({
+          title: depletedWarnings.length > 0 ? 'Advertencia de Rollos y Metraje' : 'Confirmación de Metraje Inusual',
+          subtitle: depletedWarnings.length > 0 ? 'VERIFICACIÓN DE STOCK E INVENTARIO' : 'VERIFICACIÓN DE CANTIDAD',
+          warnings: combinedWarnings,
+          onConfirm: () => {
+            setRollWarningConfirm(null);
+            executeSave(omittedList, true);
+          }
+        });
+        return;
       }
     }
 
@@ -1477,9 +1806,19 @@ export default function PackingListForm({
             const rollRef = doc(db, 'inventory', rollId);
             const snap = await transaction.get(rollRef);
             if (!snap.exists()) {
-              throw new Error(`El rollo con ID "${rollId}" no existe en el inventario.`);
+              const oldMeters = editingPackingList.items
+                .filter(oi => oi.rollId === rollId)
+                .reduce((sum, item) => sum + item.meters, 0);
+              const newMeters = finalItems
+                .filter(ni => ni.rollId === rollId)
+                .reduce((sum, item) => sum + item.meters, 0);
+              if (newMeters > oldMeters + 0.001) {
+                throw new Error(`El rollo con ID "${rollId}" ya no existe en el inventario para descontar metraje adicional.`);
+              }
+              rollSnaps[rollId] = null;
+            } else {
+              rollSnaps[rollId] = snap.data();
             }
-            rollSnaps[rollId] = snap.data();
           }
 
           // C. WRITE PHASE: Update packing list doc
@@ -1490,6 +1829,7 @@ export default function PackingListForm({
           // D. Calculate new currentMeters for each affected roll
           for (const rollId of allRollIds) {
             const baseData = rollSnaps[rollId];
+            if (!baseData) continue;
 
             // Revert old items for this roll
             const oldMeters = editingPackingList.items
@@ -1570,7 +1910,13 @@ export default function PackingListForm({
           const counterSnap = await transaction.get(counterRef);
 
           const currentVal = counterSnap.exists() ? Number(counterSnap.data()?.currentValue) || 0 : 0;
-          const nextValue = computeNextPackingNumber(currentVal, maxExistingNum, counterSnap.exists());
+          let nextValue: number;
+          try {
+            nextValue = computeNextPackingNumber(currentVal, maxExistingNum, counterSnap.exists());
+          } catch (counterErr: any) {
+            console.warn("Auto-sincronizando contador atómico de Packing List:", counterErr?.message);
+            nextValue = Math.max(currentVal, maxExistingNum) + 1;
+          }
 
           const assignedPackingListNo = `PL-${String(nextValue).padStart(4, '0')}`;
 
@@ -1614,7 +1960,8 @@ export default function PackingListForm({
           };
 
           const plRef = doc(db, 'packinglists', newPL.id);
-          transaction.set(plRef, newPL);
+          const sanitizedNewPL = sanitizeFirestoreData(newPL);
+          transaction.set(plRef, sanitizedNewPL as any);
           createdPL = newPL;
 
           // 3. Descontar stock para cada rollo utilizado
@@ -1712,6 +2059,11 @@ export default function PackingListForm({
         e.preventDefault();
         if (loading || isSubmittingRef.current) return;
         handleSubmit();
+      }
+
+      if (e.altKey && (e.key === 'a' || e.key === 'A' || e.key === 'n' || e.key === 'N')) {
+        e.preventDefault();
+        handleAddArticleGroup();
       }
 
       if (e.key === 'Escape') {
@@ -2017,7 +2369,7 @@ export default function PackingListForm({
 
       <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
         {/* SECCIÓN 1: DATOS DEL DESPACHO */}
-        <div className="p-3.5 sm:p-5 border border-app-border rounded-xl bg-app-bg/30 space-y-3 sm:space-y-4">
+        <div className="p-3 sm:p-4 border border-app-border rounded-xl bg-app-bg/30 space-y-2.5 sm:space-y-3">
           <div className="flex items-center gap-2 pb-2 border-b border-app-border">
             <div className="p-1.5 rounded-md bg-app-primary/10 text-app-primary">
               <FileText size={18} />
@@ -2048,6 +2400,7 @@ export default function PackingListForm({
               clientId={clientId}
               setClientId={handleClientChange}
               clients={clients}
+              recentClients={recentClients}
               onAddNewClient={handleAddNewClient}
               sellerId={sellerId}
               setSellerId={setSellerId}
@@ -2058,11 +2411,12 @@ export default function PackingListForm({
               providers={providers}
               onAddNewProvider={handleAddNewProvider}
               showProviderSelector={false}
+              packingType={packingType}
             />
           </div>
 
           {packingType !== 'antiguo' && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 pt-3 border-t border-app-border/40">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 pt-2.5 border-t border-app-border/40">
               <div className="md:col-span-1">
                 <label className="block text-xs font-bold text-app-text/80 mb-1">Número de Guía</label>
                 <input
@@ -2073,9 +2427,6 @@ export default function PackingListForm({
                   className="w-full px-3 py-2 border border-app-border rounded-lg text-sm text-app-text focus:ring-2 focus:ring-app-primary bg-app-surface font-mono min-h-[42px] sm:min-h-0"
                   id="input-pl-guide"
                 />
-                <p className="text-[11px] text-app-text/50 mt-1 leading-snug">
-                  Opcional. Puedes completarlo después si aún no tienes el número.
-                </p>
               </div>
               <div className="md:col-span-2">
                 <label className="block text-xs font-bold text-app-text/80 mb-1">Dirección de Despacho</label>
@@ -2087,16 +2438,13 @@ export default function PackingListForm({
                   className="w-full px-3 py-2 border border-app-border rounded-lg text-sm text-app-text focus:ring-2 focus:ring-app-primary bg-app-surface min-h-[42px] sm:min-h-0"
                   id="input-pl-dispatch-address"
                 />
-                <p className="text-[11px] text-app-text/50 mt-1 leading-snug">
-                  Se autocompleta con la dirección del cliente, pero puedes editarla.
-                </p>
               </div>
             </div>
           )}
         </div>
 
         {/* Divisor Visual Sutil */}
-        <hr className="border-app-border/60 my-4 sm:my-6" />
+        <hr className="border-app-border/60 my-3 sm:my-4" />
 
         {/* SECCIÓN 2: ARTÍCULOS Y ROLLOS */}
         <div className="p-3.5 sm:p-5 border border-app-border rounded-xl bg-app-bg/30 space-y-3 sm:space-y-4">
@@ -2109,17 +2457,25 @@ export default function PackingListForm({
                 <h3 className="text-xs font-bold text-app-text uppercase tracking-wider">
                   2. Artículos y Rollos
                 </h3>
+                {packingType !== 'nuevo' && (
+                  <p className="text-[10px] text-app-text/50">
+                    Atajos: <span className="font-mono font-bold">Alt + A</span> nuevo artículo • <span className="font-mono font-bold">Ctrl + Enter</span> guardar e imprimir
+                  </p>
+                )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={handleAddArticleGroup}
-              className="px-4 py-2.5 sm:py-1.5 bg-app-primary hover:bg-app-primary/90 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs min-h-[42px] sm:min-h-0 w-full sm:w-auto"
-              id="btn-add-article-section"
-            >
-              <Plus size={14} />
-              Añadir Otro Artículo
-            </button>
+            {packingType !== 'nuevo' && (
+              <button
+                type="button"
+                onClick={handleAddArticleGroup}
+                className="px-4 py-2.5 sm:py-1.5 bg-app-primary hover:bg-app-primary/90 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs min-h-[42px] sm:min-h-0 w-full sm:w-auto"
+                id="btn-add-article-section"
+                title="Añadir otra sección de artículo (Atajo: Alt + A)"
+              >
+                <Plus size={14} />
+                Añadir Otro Artículo
+              </button>
+            )}
           </div>
 
           <div className="space-y-4 sm:space-y-6">
@@ -2129,6 +2485,7 @@ export default function PackingListForm({
                 group={group}
                 index={index}
                 articles={articles}
+                recentArticles={recentArticles}
                 providers={providers}
                 packingType={packingType}
                 availableRolls={availableRolls}
@@ -2136,6 +2493,10 @@ export default function PackingListForm({
                 packingLists={packingLists}
                 formProviderId={formProviderId}
                 onRemove={handleRemoveArticleGroup}
+                onCloneGroup={handleCloneArticleGroup}
+                onClearGroupRolls={handleClearGroupRolls}
+                onToggleWarehouseRoll={handleToggleWarehouseRoll}
+                onSelectAllWarehouseRolls={handleSelectAllWarehouseRolls}
                 onGroupFieldChange={handleGroupFieldChange}
                 onRollFieldChange={handleRollFieldChange}
                 onAddRoll={handleAddRollToGroup}
@@ -2148,25 +2509,40 @@ export default function PackingListForm({
               />
             ))}
           </div>
+
+          {packingType === 'nuevo' && (
+            <div className="pt-2 border-t border-app-border/60 flex justify-end">
+              <button
+                type="button"
+                onClick={handleAddArticleGroup}
+                className="px-4 py-2.5 sm:py-2 bg-app-primary hover:bg-app-primary/90 text-white rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs min-h-[42px] sm:min-h-0 w-full sm:w-auto"
+                id="btn-add-article-section"
+                title="Añadir otra sección de artículo (Atajo: Alt + A)"
+              >
+                <Plus size={14} />
+                Añadir Otro Artículo
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* SECCIÓN 3: NOTAS ADICIONALES (Solo en Packing List de Corte) */}
-        {packingType === 'corte' && (
+        {/* SECCIÓN 3: NOTAS ADICIONALES (Solo en Corte y Antiguo) */}
+        {packingType !== 'nuevo' && (
           <>
-            <hr className="border-app-border/60 my-4 sm:my-6" />
+            <hr className="border-app-border/60 my-3 sm:my-4" />
             <div className="p-3.5 sm:p-5 border border-app-border rounded-xl bg-app-bg/30 space-y-3 sm:space-y-4">
               <div className="flex items-center gap-2 pb-2.5 border-b border-app-border">
                 <div className="p-1.5 rounded-md bg-app-primary/10 text-app-primary">
                   <FileText size={18} />
                 </div>
                 <h3 className="text-xs font-bold text-app-text uppercase tracking-wider">
-                  3. Notas Adicionales
+                  3. Notas Adicionales / Observaciones
                 </h3>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-app-text/80 mb-1">
-                  Notas / Observaciones (Se imprimirá en el Packing List)
+                  Notas / Observaciones (Se imprimirá en el Packing List y Guía)
                 </label>
                 <textarea
                   placeholder="Escriba alguna nota u observación para este packing list..."
@@ -2205,12 +2581,12 @@ export default function PackingListForm({
                   </>
                 )}
               </div>
-            ) : (
+            ) : packingType !== 'nuevo' ? (
               <span className="text-[10px] text-app-text/45 font-semibold font-mono no-print">
                 Atajo: <span className="bg-app-bg border border-app-border rounded px-1.5 py-0.5 font-bold">Ctrl + Enter</span>
               </span>
-            )}
-            {liveStats.totalRolls > 0 && (
+            ) : null}
+            {liveStats.totalRolls > 0 && packingType !== 'nuevo' && (
               <span className="hidden md:inline text-[10px] text-app-text/45 font-semibold font-mono no-print ml-2">
                 (Ctrl + Enter para guardar)
               </span>
@@ -2396,6 +2772,67 @@ export default function PackingListForm({
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Roll Warning Confirmation Modal (Unusual meters >500m or Depleted Rolls) */}
+      {rollWarningConfirm && (
+        <div className="fixed inset-0 bg-app-bg/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in no-print">
+          <div className="bg-app-surface border border-app-border rounded-xl w-full max-w-md shadow-2xl overflow-hidden animate-slide-up text-app-text">
+            <div className="bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-950/40 p-5 flex items-center gap-3">
+              <div className="bg-amber-500 text-white p-2 rounded-lg">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider">{rollWarningConfirm.title}</h4>
+                <p className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-widest mt-0.5">{rollWarningConfirm.subtitle}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRollWarningConfirm(null)}
+                className="ml-auto text-app-text/45 hover:text-app-text cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-xs font-medium leading-relaxed text-app-text/80">
+                Se detectaron las siguientes observaciones antes de registrar el Packing List:
+              </p>
+
+              <div className="space-y-2 max-h-48 overflow-y-auto bg-app-bg p-3 rounded-lg border border-app-border">
+                {rollWarningConfirm.warnings.map((w, idx) => (
+                  <div key={idx} className="text-[11px] font-medium text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                    <span className="font-bold">•</span>
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs font-semibold text-app-text/80">
+                ¿Desea confirmar y continuar con el registro de todas formas?
+              </p>
+            </div>
+
+            <div className="bg-app-bg px-6 py-4 border-t border-app-border flex justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => setRollWarningConfirm(null)}
+                className="px-3.5 py-2 hover:bg-app-border text-app-text/80 hover:text-app-text border border-app-border rounded-lg text-xs font-bold transition cursor-pointer"
+              >
+                Revisar Datos
+              </button>
+              <button
+                type="button"
+                onClick={() => rollWarningConfirm.onConfirm()}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-xs font-extrabold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <CheckCircle2 size={14} />
+                Confirmar y Continuar
+              </button>
+            </div>
           </div>
         </div>
       )}

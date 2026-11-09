@@ -39,6 +39,7 @@ export default function UserManager() {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [targetPasswordUser, setTargetPasswordUser] = useState<UserProfile | null>(null);
   const [newPasswordValue, setNewPasswordValue] = useState('');
+  const [userToDelete, setUserToDelete] = useState<UserProfile | null>(null);
 
   // Form states for Create/Edit
   const [formName, setFormName] = useState('');
@@ -215,14 +216,23 @@ export default function UserManager() {
   };
 
   // Delete user
-  const handleDelete = async (user: UserProfile) => {
-    if (window.confirm(`¿Estás seguro de que deseas eliminar permanentemente a ${user.name} (${user.email})?`)) {
-      const res = await deleteUser(user.id);
+  const handleDelete = (user: UserProfile) => {
+    setUserToDelete(user);
+  };
+
+  const confirmDeleteUser = async () => {
+    if (!userToDelete) return;
+    setIsSubmitting(true);
+    try {
+      const res = await deleteUser(userToDelete.id);
       if (res.success) {
-        toast.success(`Usuario ${user.name} eliminado.`);
+        toast.success(`Usuario ${userToDelete.name} eliminado.`);
+        setUserToDelete(null);
       } else {
         toast.error(res.message || 'No se pudo eliminar el usuario');
       }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -771,7 +781,7 @@ export default function UserManager() {
 
               <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs text-slate-400 flex items-start gap-2">
                 <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-                <span>La contraseña será hasheada con SHA-256 y salt de inmediato. El usuario podrá iniciar sesión con esta nueva clave.</span>
+                <span>La contraseña será actualizada en Firebase Authentication de inmediato. El usuario podrá iniciar sesión con esta nueva clave.</span>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2">
@@ -791,6 +801,54 @@ export default function UserManager() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRM DELETE USER */}
+      {userToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-red-500/10 text-red-400 rounded-xl border border-red-500/20">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Eliminar Usuario</h3>
+                  <p className="text-xs text-slate-400">{userToDelete.email}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-slate-300 leading-relaxed mb-6">
+              ¿Estás seguro de que deseas eliminar permanentemente a <strong className="text-white">{userToDelete.name}</strong> ({userToDelete.email})?
+            </p>
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setUserToDelete(null)}
+                className="px-4 py-2 rounded-xl border border-slate-800 text-slate-300 text-sm hover:bg-slate-800 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={confirmDeleteUser}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-semibold text-sm transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSubmitting ? 'Eliminando...' : 'Eliminar Permanentemente'}
+              </button>
+            </div>
           </div>
         </div>
       )}

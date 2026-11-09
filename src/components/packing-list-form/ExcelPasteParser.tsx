@@ -728,12 +728,74 @@ export const resolveColumnsForText = (
   };
 };
 
+// Helper to parse rapid single-line "Modo Ráfaga" meter entry:
+// Supports single meters ("48.5"), space/comma/plus separated meters ("48.5 52.1 50" or "12, 15, 20" or "45+50+48"),
+// and multiplier syntax ("50x4" or "48.5*3" -> 4 rolls of 50m, 3 rolls of 48.5m).
+// Returns null if the text is a multi-line or tab-delimited Excel table or contains alphanumeric roll codes.
+export const parseBurstMetersInput = (rawText: string): number[] | null => {
+  const trimmed = rawText.trim();
+  if (!trimmed) return null;
+
+  // Multi-line or tab/pipe/semicolon delimited text is handled by the Excel column parser
+  if (/[\r\n\t;|]/.test(trimmed)) return null;
+
+  // Normalize separator tokens:
+  // If commas are followed by whitespace (e.g. "12, 15, 20" or "12.5, 15.2") or if there are multiple commas
+  // or dots are already used as decimals, treat commas as list separators; otherwise allow comma as decimal ("45,5 50,2").
+  let normalized = trimmed.replace(/\+/g, ' ');
+  const hasDotDecimal = /\d+\.\d+/.test(normalized);
+  const hasCommaSpace = /,\s+/.test(normalized);
+  const commaMatches = normalized.match(/,/g) || [];
+  if (hasDotDecimal || hasCommaSpace || commaMatches.length > 1) {
+    normalized = normalized.replace(/,/g, ' ');
+  }
+
+  const tokens = normalized.split(/\s+/).map(t => t.trim()).filter(Boolean);
+  if (tokens.length === 0) return null;
+
+  const resultMeters: number[] = [];
+  let hasMultiplier = false;
+
+  for (const token of tokens) {
+    // Check multiplier syntax: e.g. "50x4", "48.5*3", "48,5x2"
+    const multMatch = token.match(/^(\d+(?:[.,]\d+)?)\s*(?:m|mts|mt)?\s*[xX*]\s*(\d{1,2})$/i);
+    if (multMatch) {
+      const mVal = parseSanitizedNumeric(multMatch[1]);
+      const count = parseInt(multMatch[2], 10);
+      if (mVal === null || mVal <= 0 || mVal > MAX_ROLL_METERS || isNaN(count) || count < 1 || count > 99) {
+        return null;
+      }
+      hasMultiplier = true;
+      for (let c = 0; c < count; c++) {
+        resultMeters.push(Number(mVal.toFixed(2)));
+      }
+      continue;
+    }
+
+    const numVal = parseSanitizedNumeric(token);
+    if (numVal === null || numVal <= 0 || numVal > MAX_ROLL_METERS) {
+      return null;
+    }
+    resultMeters.push(Number(numVal.toFixed(2)));
+  }
+
+  // Edge case: if exactly 2 tokens without multiplier, and token[0] is a small integer (1..20) while token[1] has decimals,
+  // e.g. "45.5 52.3" -> both are meters. Even "45 50" -> both are meters in burst mode!
+  if (resultMeters.length === 0) return null;
+  if (!hasMultiplier && resultMeters.length === 1 && tokens.length === 1) {
+    return resultMeters;
+  }
+
+  return resultMeters;
+};
+
 interface ExcelPasteParserProps {
   groupId: string;
   pConfig: Provider | null | undefined;
   isExcelOnly: boolean;
   packingType: 'nuevo' | 'antiguo' | 'corte' | 'rollo';
   onProcess: (text: string, manualMapping?: { [colIdx: number]: string }) => void;
+  inputRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 export default function ExcelPasteParser({
@@ -741,7 +803,8 @@ export default function ExcelPasteParser({
   pConfig,
   isExcelOnly,
   packingType,
-  onProcess
+  onProcess,
+  inputRef
 }: ExcelPasteParserProps) {
   const [text, setText] = useState('');
   const [manualColRoles, setManualColRoles] = useState<{ [colIdx: number]: string }>({});
@@ -771,8 +834,9 @@ export default function ExcelPasteParser({
   };
 
   const bulkVal = text.trim();
+  const burstMeters = !isExcelOnly && bulkVal ? parseBurstMetersInput(bulkVal) : null;
   const showPreview = (() => {
-    if (!bulkVal) return false;
+    if (!bulkVal || burstMeters !== null) return false;
     const res = resolveColumnsForText(bulkVal, pConfig);
     return res.lines.length > 1 || bulkVal.includes('\t') || bulkVal.includes(';') || /\s{2,}/.test(bulkVal);
   })();
@@ -913,8 +977,13 @@ export default function ExcelPasteParser({
   return (
     <div className="bg-app-bg border border-app-border p-3 sm:p-3.5 rounded-lg space-y-2 text-app-text">
       <div className="flex justify-between items-center">
-        <label className="block text-[10px] font-black text-app-text uppercase tracking-wider flex items-center gap-1">
-          {isExcelOnly ? 'Pegar desde Excel' : 'Ingreso de Metrajes (Individual o Excel)'}
+        <label className="block text-[10px] font-black text-app-text uppercase tracking-wider flex items-center gap-1.5">
+          <span>{isExcelOnly ? 'Pegar desde Excel' : 'Ingreso Rápido / Ráfaga o Pegado Excel'}</span>
+          {!isExcelOnly && packingType !== 'nuevo' && (
+            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+              Soporta ráfaga (ej: 48.5 52 50x3)
+            </span>
+          )}
         </label>
         
         {typeof navigator !== 'undefined' && navigator?.clipboard?.readText && (
@@ -933,13 +1002,14 @@ export default function ExcelPasteParser({
       <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start">
         <div className="relative flex-1">
           <textarea
+            ref={inputRef}
             rows={1}
             inputMode={isExcelOnly ? 'text' : 'decimal'}
             placeholder={isExcelOnly 
               ? "Pegue aquí las columnas copiadas de Excel (Nº Rollo, Metraje, Ancho, Peso)..."
               : packingType === 'corte' 
-                ? "Ej: 12.50 [ENTER] o pegue tabla de Excel..." 
-                : "Ej: 45.80 [ENTER] o pegue tabla de Excel..."}
+                ? "Ráfaga: 12.5 15 20x3 [ENTER] o pegue tabla de Excel..." 
+                : "Ráfaga: 45.80 52.10 50x4 [ENTER] o pegue tabla de Excel..."}
             value={text}
             onChange={e => {
               setText(e.target.value);
@@ -958,11 +1028,31 @@ export default function ExcelPasteParser({
         >
           {isExcelOnly 
             ? 'Pegar desde Excel'
-            : text.includes('\n') || text.includes('\t') 
-              ? 'Procesar Excel' 
-              : 'Agregar'}
+            : burstMeters && burstMeters.length > 1
+              ? `Agregar ${burstMeters.length} (${burstMeters.reduce((a, b) => a + b, 0).toFixed(2)}m)`
+              : text.includes('\n') || text.includes('\t') 
+                ? 'Procesar Excel' 
+                : 'Agregar [Enter]'}
         </button>
       </div>
+
+      {burstMeters && burstMeters.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-emerald-500/10 border border-emerald-500/25 px-2.5 py-1.5 rounded-md text-[10px]">
+          <div className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-300 font-bold">
+            <span>⚡ Modo Ráfaga listo:</span>
+            <span className="font-mono font-black">
+              {burstMeters.length} {packingType === 'corte' ? (burstMeters.length === 1 ? 'corte' : 'cortes') : (burstMeters.length === 1 ? 'rollo' : 'rollos')}
+            </span>
+            <span>·</span>
+            <span className="font-mono font-black">
+              {burstMeters.reduce((a, b) => a + b, 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m
+            </span>
+          </div>
+          <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400">
+            Presione [ENTER] para insertar al instante
+          </span>
+        </div>
+      )}
 
       {previewRes && (
         <div className="mt-3 bg-app-surface border border-app-border rounded-lg p-3.5 shadow-xs space-y-2.5">
@@ -1113,17 +1203,19 @@ export default function ExcelPasteParser({
         </div>
       )}
 
-      <p className="text-[9px] text-app-text/65 leading-relaxed">
-        {isExcelOnly ? (
-          <span>
-            <strong>Requisito obligatorio:</strong> Copie y pegue directamente las columnas desde su hoja de Excel (Nº Rollo, Metraje, Ancho, Peso). El sistema identificará y asignará cada parámetro en su celda respectiva de inmediato.
-          </span>
-        ) : (
-          <span>
-            <strong>Consejo rápido:</strong> Escriba un número y presione ENTER, o pegue directamente una tabla copiada desde Excel (que incluya Nº Rollo, Metraje, Lote, Partida, Tono). El sistema reconocerá automáticamente los campos y rellenará la sección de inmediato.
-          </span>
-        )}
-      </p>
+      {packingType !== 'nuevo' && (
+        <p className="text-[9px] text-app-text/65 leading-relaxed">
+          {isExcelOnly ? (
+            <span>
+              <strong>Requisito obligatorio:</strong> Copie y pegue directamente las columnas desde su hoja de Excel (Nº Rollo, Metraje, Ancho, Peso). El sistema identificará y asignará cada parámetro en su celda respectiva de inmediato.
+            </span>
+          ) : (
+            <span>
+              <strong>Consejo rápido:</strong> Escriba un número y presione ENTER, o pegue directamente una tabla copiada desde Excel (que incluya Nº Rollo, Metraje, Lote, Partida, Tono). El sistema reconocerá automáticamente los campos y rellenará la sección de inmediato.
+            </span>
+          )}
+        </p>
+      )}
     </div>
   );
 }

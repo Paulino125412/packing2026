@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { PackingList, Client, Seller, Provider, Article, RollItem } from '../types';
 import { db, runTransaction } from '../firebase';
 import { doc } from 'firebase/firestore';
-import { Search, Filter, Trash2, Eye, FileText, AlertTriangle, RefreshCw, X, Edit2, FileSpreadsheet, MessageCircle, Plus, MoreVertical } from 'lucide-react';
+import { Search, Filter, Trash2, Eye, FileText, AlertTriangle, RefreshCw, X, Edit2, Copy, FileSpreadsheet, MessageCircle, Plus, MoreVertical } from 'lucide-react';
 import { exportPackingListSummaryToExcel, exportPackingListFullDetailsToExcel, exportSinglePackingListToExcel } from '../utils/excelExport';
 import AlertBanner from './AlertBanner';
 
@@ -32,6 +32,7 @@ export default function PackingListHistory({
   onRefresh,
   onSelectPrint,
   onEdit,
+  onDuplicate,
   initialSearchTerm,
   onCreateNew
 }: PackingListHistoryProps) {
@@ -820,6 +821,19 @@ _Generado automáticamente desde Sistema TexFlow Almacén_`;
                   <Edit2 size={14} className="text-app-text/60" />
                   <span>Editar</span>
                 </button>
+
+                {onDuplicate && (
+                  <button
+                    onClick={() => {
+                      setMenuAnchor(null);
+                      onDuplicate(pl);
+                    }}
+                    className="w-full text-left px-3 py-2 hover:bg-app-bg flex items-center gap-2.5 text-app-text/80 hover:text-app-primary transition cursor-pointer font-semibold"
+                  >
+                    <Copy size={14} className="text-app-text/60" />
+                    <span>Duplicar</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => {

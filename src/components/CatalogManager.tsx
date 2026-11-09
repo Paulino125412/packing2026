@@ -48,6 +48,12 @@ export default function CatalogManager({
   } | string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<{
+    tab: CatalogTab;
+    id: string;
+    name: string;
+    entityLabel: string;
+  } | null>(null);
   const [similarityWarning, setSimilarityWarning] = useState<{
     isOpen: boolean;
     existingName: string;
@@ -543,27 +549,14 @@ export default function CatalogManager({
         return;
       }
 
-      if (!window.confirm('¿Está seguro de eliminar este registro del catálogo?')) return;
-      setLoading(true);
-      try {
-        await deleteDoc(doc(db, tab, id));
-        await onRefresh();
-        toast.success('Registro eliminado del catálogo correctamente.');
-        resetForms();
-      } catch (err: any) {
-        console.error(err);
-        const diag = analyzeSystemError(err, { action: 'eliminar registro del catálogo', entity: tab });
-        setError({
-          title: diag.title,
-          message: diag.message,
-          rootCause: diag.rootCause,
-          solution: diag.solution,
-          technicalDetails: diag.technicalDetails
-        });
-        toast.diagnose(err, { action: 'eliminar del catálogo', entity: tab });
-      } finally {
-        setLoading(false);
-      }
+      const entityLabel = tab === 'clients' ? 'cliente' : tab === 'sellers' ? 'vendedor' : tab === 'providers' ? 'proveedor' : 'artículo';
+      const itemName =
+        tab === 'clients' ? (clients.find(c => c.id === id)?.name || id) :
+        tab === 'sellers' ? (sellers.find(s => s.id === id)?.name || id) :
+        tab === 'providers' ? (providers.find(p => p.id === id)?.name || id) :
+        (articles.find(a => a.id === id)?.name || id);
+
+      setConfirmDeleteTarget({ tab, id, name: itemName, entityLabel });
     } catch (err: any) {
       console.error(err);
       const diag = analyzeSystemError(err, { action: 'verificar dependencias de inventario', entity: tab });
@@ -577,6 +570,32 @@ export default function CatalogManager({
       toast.diagnose(err, { action: 'verificar dependencias', entity: tab });
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const executeConfirmedDelete = async () => {
+    if (!confirmDeleteTarget) return;
+    const { tab, id } = confirmDeleteTarget;
+    setLoading(true);
+    try {
+      await deleteDoc(doc(db, tab, id));
+      await onRefresh();
+      toast.success('Registro eliminado del catálogo correctamente.');
+      resetForms();
+      setConfirmDeleteTarget(null);
+    } catch (err: any) {
+      console.error(err);
+      const diag = analyzeSystemError(err, { action: 'eliminar registro del catálogo', entity: tab });
+      setError({
+        title: diag.title,
+        message: diag.message,
+        rootCause: diag.rootCause,
+        solution: diag.solution,
+        technicalDetails: diag.technicalDetails
+      });
+      toast.diagnose(err, { action: 'eliminar del catálogo', entity: tab });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1617,6 +1636,66 @@ export default function CatalogManager({
                 className="px-5 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded text-xs font-bold uppercase tracking-wider transition cursor-pointer shadow-sm"
               >
                 Continuar de todas formas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Catalog Delete Confirmation Modal */}
+      {confirmDeleteTarget && (
+        <div className="fixed inset-0 bg-app-bg/70 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in no-print">
+          <div className="bg-app-surface border border-app-border rounded-xl w-full max-w-md shadow-2xl overflow-hidden animate-slide-up text-app-text">
+            <div className="bg-red-50 dark:bg-red-950/20 border-b border-red-100 dark:border-red-950/40 p-5 flex items-center gap-3">
+              <div className="bg-red-500 text-white p-2 rounded-lg">
+                <Trash2 size={18} />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider">Confirmar Eliminación</h4>
+                <p className="text-[9px] font-bold text-red-600 dark:text-red-400 uppercase tracking-widest mt-0.5">
+                  ELIMINAR {confirmDeleteTarget.entityLabel.toUpperCase()} DEL CATÁLOGO
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !loading && setConfirmDeleteTarget(null)}
+                disabled={loading}
+                className="ml-auto text-app-text/45 hover:text-app-text cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-3">
+              <p className="text-xs font-medium leading-relaxed text-app-text/85">
+                ¿Está seguro de eliminar el {confirmDeleteTarget.entityLabel}{' '}
+                <strong className="font-bold text-app-text bg-app-bg px-1.5 py-0.5 rounded">
+                  "{confirmDeleteTarget.name}"
+                </strong>{' '}
+                del catálogo?
+              </p>
+              <p className="text-[11px] text-app-text/60">
+                Se ha verificado que no tiene dependencias activas en inventario ni en despachos registrados.
+              </p>
+            </div>
+
+            <div className="bg-app-bg px-6 py-4 border-t border-app-border flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteTarget(null)}
+                disabled={loading}
+                className="px-3.5 py-1.5 hover:bg-app-border text-app-text/80 hover:text-app-text border border-app-border rounded-lg text-xs font-bold transition cursor-pointer disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={executeConfirmedDelete}
+                disabled={loading}
+                className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+              >
+                <Trash2 size={13} />
+                {loading ? 'Eliminando...' : 'Sí, Eliminar'}
               </button>
             </div>
           </div>

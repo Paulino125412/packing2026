@@ -9,6 +9,7 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn() && (
         request.auth.token.admin == true ||
+        request.auth.token.email == 'paulcalebfs123@gmail.com' ||
         (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
@@ -72,10 +73,10 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isSignedIn() && (isOwner(userId) || isAdmin());
-      allow create: if isAdmin() && !request.resource.data.keys().hasAny(['passwordHash', 'salt']);
+      allow create: if (isAdmin() || (isOwner(userId) && request.auth.token.email == 'paulcalebfs123@gmail.com')) && !request.resource.data.keys().hasAny(['passwordHash', 'salt']);
       allow update: if isSignedIn() && (
         (isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['passwordHash', 'salt'])) ||
-        (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword', 'updatedAt']))
+        (isOwner(userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['mustChangePassword', 'updatedAt', 'lastLoginAt']))
       );
       allow delete: if isAdmin();
     }

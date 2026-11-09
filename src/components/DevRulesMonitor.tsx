@@ -12,12 +12,14 @@ import {
   Radio
 } from 'lucide-react';
 import { runInternalRulesVerification, RuleCheckResult, SystemDataPayload } from '../utils/rulesChecker';
+import { useToast } from '../context/ToastContext';
 
 interface DevRulesMonitorProps {
   data?: SystemDataPayload;
 }
 
 export default function DevRulesMonitor({ data = {} }: DevRulesMonitorProps) {
+  const toast = useToast();
   const [isOpen, setIsOpen] = useState(false);
   const [filter, setFilter] = useState<'all' | 'fail' | 'warn' | 'pass'>('all');
   const [auditTimestamp, setAuditTimestamp] = useState<number>(Date.now());
@@ -322,7 +324,7 @@ export default function DevRulesMonitor({ data = {} }: DevRulesMonitorProps) {
                       setTimeout(() => setSentryTestSent(false), 5000);
                     } catch (err) {
                       console.error('Error enviando evento a Sentry:', err);
-                      window.alert('Error enviando a Sentry. Revisa si un bloqueador de anuncios (AdBlock) lo está frenando.');
+                      toast.error('Error enviando a Sentry. Revisa si un bloqueador de anuncios (AdBlock) lo está frenando.');
                     }
                   }}
                   className="px-2.5 py-1 bg-purple-600/15 hover:bg-purple-600/25 border border-purple-500/30 text-purple-700 dark:text-purple-300 rounded font-semibold text-[11px] flex items-center gap-1.5 transition cursor-pointer"

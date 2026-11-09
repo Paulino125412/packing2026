@@ -329,9 +329,12 @@ export function runInternalRulesVerification(data: SystemDataPayload = {}): Rule
       const pending = Number(order.pendingAmount) || 0;
       const total = Number(order.totalAmount) || 0;
       
-      const sum = billed + pending;
-      if (Math.abs(sum - total) > 0.01) {
-        orderMathErrors++;
+      // Los campos de facturación/pendiente son opcionales; validar cuadre si se registró alguno de ellos
+      if (billed > 0 || pending > 0) {
+        const sum = billed + pending;
+        if (Math.abs(sum - total) > 0.01) {
+          orderMathErrors++;
+        }
       }
     });
 

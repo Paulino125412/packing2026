@@ -509,14 +509,15 @@ export async function seedDatabaseIfEmpty() {
 }
 
 export async function syncLocalDataToCloud() {
-  const collectionsToSync = ['providers', 'articles', 'clients', 'sellers', 'inventory', 'packinglists'] as const;
+  const collectionsToSync = ['providers', 'articles', 'clients', 'sellers', 'inventory', 'packinglists', 'sales_orders'] as const;
   const uploadedCounts = {
     providers: 0,
     articles: 0,
     clients: 0,
     sellers: 0,
     inventory: 0,
-    packinglists: 0
+    packinglists: 0,
+    sales_orders: 0
   };
 
   try {

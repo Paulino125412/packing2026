@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, Trash2, QrCode } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Plus, Trash2, QrCode, Copy, Zap, Check, PackageCheck, RotateCcw } from 'lucide-react';
 import { Article, Provider, RollItem, PackingList } from '../../types';
 import { findRollInInventory, fetchAllPackingLists } from '../../firebase';
 import { FormArticleGroup, FormRollEntry } from './types';
@@ -13,6 +13,7 @@ interface ArticleGroupSectionProps {
   group: FormArticleGroup;
   index: number;
   articles: Article[];
+  recentArticles?: Article[];
   providers: Provider[];
   packingType: 'nuevo' | 'antiguo' | 'corte' | 'rollo';
   availableRolls: RollItem[];
@@ -20,6 +21,10 @@ interface ArticleGroupSectionProps {
   packingLists: PackingList[];
   formProviderId: string;
   onRemove: (groupId: string) => void;
+  onCloneGroup?: (groupId: string) => void;
+  onClearGroupRolls?: (groupId: string) => void;
+  onToggleWarehouseRoll?: (groupId: string, warehouseRoll: RollItem) => void;
+  onSelectAllWarehouseRolls?: (groupId: string, warehouseRolls: RollItem[]) => void;
   onGroupFieldChange: (groupId: string, field: keyof FormArticleGroup, value: any) => void;
   onRollFieldChange: (groupId: string, rollId: string, field: keyof FormRollEntry, value: any) => void;
   onAddRoll: (groupId: string) => void;
@@ -45,6 +50,7 @@ export default function ArticleGroupSection({
   group,
   index,
   articles,
+  recentArticles = [],
   providers,
   packingType,
   availableRolls,
@@ -52,6 +58,10 @@ export default function ArticleGroupSection({
   packingLists,
   formProviderId,
   onRemove,
+  onCloneGroup,
+  onClearGroupRolls,
+  onToggleWarehouseRoll,
+  onSelectAllWarehouseRolls,
   onGroupFieldChange,
   onRollFieldChange,
   onAddRoll,
@@ -66,9 +76,38 @@ export default function ArticleGroupSection({
   const pConfig = providers.find(p => p.id === groupEffectiveProviderId) || (formProviderId ? providers.find(p => p.id === formProviderId) : null) || null;
   const isExcelOnly = pConfig && (pConfig.hasRollNo ?? true) && pConfig.hasWidth && pConfig.hasWeight;
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [scannerWarning, setScannerWarning] = useState<string | null>(null);
+  const [stockFilterText, setStockFilterText] = useState('');
+  const quickInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const [depletedScanConfirm, setDepletedScanConfirm] = useState<{
+    rollNumber: string;
+    packingListNo: string;
+    scan: {
+      rollNumber: string;
+      meters?: number;
+      lot?: string;
+      partida?: string;
+      tono?: string;
+      width?: string;
+      weight?: string;
+      rollId?: string;
+      maxMeters?: number;
+    };
+  } | null>(null);
 
   const currentArticleObj = articles.find(a => a.id === group.articleId || a.name === group.articleId);
   const effectiveArticleId = currentArticleObj ? currentArticleObj.id : group.articleId;
+
+  const handleSelectArticleAndFocus = (val: string) => {
+    const selectedArt = articles.find(a => a.id === val || a.name === val);
+    onGroupFieldChange(group.id, 'articleId', selectedArt ? selectedArt.id : val);
+    if (group.source === 'custom' && val) {
+      setTimeout(() => {
+        quickInputRef.current?.focus();
+      }, 60);
+    }
+  };
 
   // Allow selecting any article from the whole catalog, automatically associating its provider
   const articleOptions = articles.map(a => {
@@ -88,6 +127,23 @@ export default function ArticleGroupSection({
     });
   }
 
+  // Available warehouse stock rolls for this article
+  const articleStockRolls = allInventory.filter(
+    r => r.articleId === effectiveArticleId && r.currentMeters > 0
+  );
+  const filteredStockRolls = stockFilterText.trim()
+    ? articleStockRolls.filter(r => {
+        const q = stockFilterText.trim().toLowerCase();
+        return (
+          r.rollNumber.toLowerCase().includes(q) ||
+          (r.lot || '').toLowerCase().includes(q) ||
+          (r.tono || '').toLowerCase().includes(q) ||
+          (r.partida || '').toLowerCase().includes(q)
+        );
+      })
+    : articleStockRolls;
+  const selectedRollIdsInGroup = new Set(group.rolls.map(r => r.rollId).filter(Boolean));
+
   const isSanJacinto = isSanJacintoProvider(pConfig);
   const showLot = Boolean((pConfig?.hasLot) || group.rolls.some(r => !!r.lot) || group.source === 'custom');
   const showPartida = Boolean((pConfig?.hasPartida) || group.rolls.some(r => !!r.partida) || group.source === 'custom');
@@ -106,9 +162,10 @@ export default function ArticleGroupSection({
 
   const handleOpenScanner = () => {
     if (!group.articleId) {
-      alert("Debe seleccionar o agregar un Artículo primero antes de activar el escáner de la cámara.");
+      setScannerWarning("Seleccione o agregue un Artículo primero antes de activar el escáner de la cámara.");
       return;
     }
+    setScannerWarning(null);
     setIsScannerOpen(true);
   };
 
@@ -142,18 +199,31 @@ export default function ArticleGroupSection({
   return (
     <div className="p-3 sm:p-5 border border-app-border hover:border-app-border/80 rounded-xl bg-app-surface shadow-xs space-y-3.5 sm:space-y-4 relative group transition-colors">
       
-      {/* Absolute remove article section button */}
-      <button
-        type="button"
-        onClick={() => onRemove(group.id)}
-        className="absolute top-3 right-3 text-app-text/45 hover:text-red-500 p-2 md:p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center bg-app-surface/80 border border-app-border md:border-none"
-        title="Eliminar esta sección de artículo completa"
-      >
-        <Trash2 size={18} />
-      </button>
+      {/* Top-right action buttons: Clone Same Article + Remove section */}
+      <div className="absolute top-3 right-3 flex items-center gap-1.5">
+        {group.articleId && onCloneGroup && (
+          <button
+            type="button"
+            onClick={() => onCloneGroup(group.id)}
+            className="text-app-primary hover:text-app-primary/80 px-2 py-1.5 rounded-lg bg-app-primary/10 hover:bg-app-primary/20 border border-app-primary/25 transition cursor-pointer flex items-center gap-1 text-[10px] font-bold"
+            title="Crear otra sección con este mismo artículo para otro Lote o Tono/Color"
+          >
+            <Copy size={13} />
+            <span className="hidden sm:inline">Otro Lote/Tono</span>
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => onRemove(group.id)}
+          className="text-app-text/45 hover:text-red-500 p-2 md:p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center bg-app-surface/80 border border-app-border md:border-none"
+          title="Eliminar esta sección de artículo completa"
+        >
+          <Trash2 size={17} />
+        </button>
+      </div>
 
       {/* Section Header */}
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3 pr-10">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 pr-28 sm:pr-40">
         <span className="w-6 h-6 rounded-full bg-app-primary text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
           {index + 1}
         </span>
@@ -186,30 +256,24 @@ export default function ArticleGroupSection({
                 Ingreso Directo
               </button>
             </div>
-            <p className="text-[10px] sm:text-[11px] text-app-text/50 font-normal">
-              {group.source === 'inventory' ? 'Elige rollo registrado' : 'Datos libres / manuales'}
-            </p>
+            {packingType !== 'nuevo' && (
+              <p className="text-[10px] sm:text-[11px] text-app-text/50 font-normal">
+                {group.source === 'inventory' ? 'Clic directo en rollos de stock' : 'Ráfaga / Excel / Manual'}
+              </p>
+            )}
           </div>
         )}
       </div>
 
       {/* Article and Provider selection fields */}
-      <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 gap-2">
         {group.source === 'custom' ? (
           <div>
             <SearchableCombobox
               label="Agregar Artículos *"
               placeholder="Buscar o registrar Artículo..."
               value={effectiveArticleId || group.articleId}
-              onChange={val => {
-                const selectedArt = articles.find(a => a.id === val || a.name === val);
-                if (selectedArt) {
-                  onGroupFieldChange(group.id, 'providerId', selectedArt.providerId);
-                  onGroupFieldChange(group.id, 'articleId', selectedArt.id);
-                } else {
-                  onGroupFieldChange(group.id, 'articleId', val);
-                }
-              }}
+              onChange={handleSelectArticleAndFocus}
               options={articleOptions}
               addNewText="Agregar Nuevo Artículo"
               onAddNewWithFields={onAddNewArticle}
@@ -224,17 +288,29 @@ export default function ArticleGroupSection({
               label="Artículo del Despacho (Pick de Almacén) *"
               placeholder="Buscar Artículo en Almacén..."
               value={effectiveArticleId || group.articleId}
-              onChange={val => {
-                const selectedArt = articles.find(a => a.id === val || a.name === val);
-                if (selectedArt) {
-                  onGroupFieldChange(group.id, 'providerId', selectedArt.providerId);
-                  onGroupFieldChange(group.id, 'articleId', selectedArt.id);
-                } else {
-                  onGroupFieldChange(group.id, 'articleId', val);
-                }
-              }}
+              onChange={handleSelectArticleAndFocus}
               options={articleOptions}
             />
+          </div>
+        )}
+
+        {/* 1-Click Frequent / Recent Articles Pills when no article is selected */}
+        {packingType !== 'nuevo' && !group.articleId && recentArticles.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 pt-0.5">
+            <span className="text-[9px] font-black uppercase tracking-wider text-app-text/50 flex items-center gap-0.5 mr-0.5">
+              <Zap size={10} className="text-amber-500" /> Artículos rápidos:
+            </span>
+            {recentArticles.slice(0, 6).map(art => (
+              <button
+                key={art.id}
+                type="button"
+                onClick={() => handleSelectArticleAndFocus(art.id)}
+                className="text-[10px] font-bold px-2 py-0.5 rounded bg-app-bg hover:bg-app-primary/15 text-app-text/80 hover:text-app-primary border border-app-border hover:border-app-primary/40 transition cursor-pointer truncate max-w-[180px]"
+                title={`Seleccionar ${art.name}`}
+              >
+                {art.name}
+              </button>
+            ))}
           </div>
         )}
       </div>
@@ -246,7 +322,7 @@ export default function ArticleGroupSection({
           {pConfig?.hasLot && (
             <div>
               <label className="block text-xs md:text-[10px] font-bold text-app-text/80 mb-1 uppercase">
-                Lote (Compartido)
+                {packingType === 'nuevo' ? 'Lote' : 'Lote (Compartido - Sincroniza Filas)'}
               </label>
               <input
                 type="text"
@@ -260,7 +336,7 @@ export default function ArticleGroupSection({
           {pConfig?.hasPartida && (
             <div>
               <label className="block text-xs md:text-[10px] font-bold text-app-text/80 mb-1 uppercase">
-                Partida (Compartida)
+                {packingType === 'nuevo' ? 'Partida' : 'Partida (Compartida - Sincroniza Filas)'}
               </label>
               <input
                 type="text"
@@ -274,7 +350,7 @@ export default function ArticleGroupSection({
           {(pConfig?.hasTono || isSanJacinto) && (
             <div>
               <label className="block text-xs md:text-[10px] font-bold text-app-text/80 mb-1 uppercase">
-                Tono / Color (Compartido)
+                {packingType === 'nuevo' ? 'Tono / Color' : 'Tono / Color (Compartido - Sincroniza Filas)'}
               </label>
               <input
                 type="text"
@@ -323,6 +399,18 @@ export default function ArticleGroupSection({
               : `Cantidades de Metraje para este Artículo (${group.rolls.length})`}
           </p>
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            {group.rolls.length > 1 && onClearGroupRolls && (
+              <button
+                type="button"
+                onClick={() => onClearGroupRolls(group.id)}
+                className="px-2.5 py-2 md:py-1 bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 text-red-600 dark:text-red-400 rounded-lg text-xs md:text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition cursor-pointer min-h-[40px] md:min-h-0"
+                title="Vaciar todas las filas de este artículo"
+              >
+                <RotateCcw size={12} />
+                <span>Vaciar ({group.rolls.length})</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleOpenScanner}
@@ -336,7 +424,13 @@ export default function ArticleGroupSection({
             {!isExcelOnly ? (
               <button
                 type="button"
-                onClick={() => onAddRoll(group.id)}
+                onClick={() => {
+                  onAddRoll(group.id);
+                  setTimeout(() => {
+                    const nextEl = document.getElementById(`meters-${group.id}-${group.rolls.length}`);
+                    if (nextEl) (nextEl as HTMLInputElement).focus();
+                  }, 60);
+                }}
                 className="px-3 py-2 md:px-2.5 md:py-1 bg-app-surface hover:bg-app-bg border border-app-border text-app-text rounded-lg text-xs md:text-[10px] font-black uppercase tracking-wider flex items-center justify-center gap-1 transition cursor-pointer shadow-2xs min-h-[40px] md:min-h-0 flex-1 sm:flex-none"
               >
                 <Plus size={14} />
@@ -351,12 +445,96 @@ export default function ArticleGroupSection({
         </div>
 
         {/* Quick-add field for custom entry */}
+        {scannerWarning && !group.articleId && (
+          <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex items-center justify-between gap-2">
+            <span>⚠️ {scannerWarning}</span>
+            <button
+              type="button"
+              onClick={() => setScannerWarning(null)}
+              className="text-[10px] font-bold underline cursor-pointer shrink-0"
+            >
+              Cerrar
+            </button>
+          </div>
+        )}
+
+        {/* 1-Click Warehouse Stock Multi-Picker when in inventory mode */}
+        {group.source === 'inventory' && group.articleId && (
+          <div className="bg-app-surface border border-app-border rounded-lg p-3 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5">
+                <PackageCheck size={14} className="text-app-primary" />
+                <span className="text-[10px] font-black uppercase tracking-wider text-app-text">
+                  Selección Rápida de Rollos en Stock ({articleStockRolls.length} disponibles)
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {articleStockRolls.length > 4 && (
+                  <input
+                    type="text"
+                    placeholder="Filtrar rollo, lote o tono..."
+                    value={stockFilterText}
+                    onChange={e => setStockFilterText(e.target.value)}
+                    className="px-2 py-1 text-[10px] font-mono border border-app-border rounded bg-app-bg text-app-text w-40"
+                  />
+                )}
+                {filteredStockRolls.length > 0 && onSelectAllWarehouseRolls && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectAllWarehouseRolls(group.id, filteredStockRolls)}
+                    className="text-[10px] font-bold px-2 py-1 rounded bg-app-primary/10 hover:bg-app-primary/20 text-app-primary border border-app-primary/30 transition cursor-pointer"
+                  >
+                    + Seleccionar Todos ({filteredStockRolls.length})
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {filteredStockRolls.length === 0 ? (
+              <p className="text-[11px] text-app-text/50 italic py-1">
+                No hay rollos con stock disponible para este artículo{stockFilterText ? ' con ese filtro' : ''}.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pr-1">
+                {filteredStockRolls.map(sr => {
+                  const isPicked = selectedRollIdsInGroup.has(sr.id);
+                  return (
+                    <button
+                      key={sr.id}
+                      type="button"
+                      onClick={() => onToggleWarehouseRoll && onToggleWarehouseRoll(group.id, sr)}
+                      className={`px-2.5 py-1.5 rounded-lg border text-[11px] font-mono flex items-center gap-1.5 transition cursor-pointer ${
+                        isPicked
+                          ? 'bg-app-primary text-white border-app-primary font-bold shadow-2xs'
+                          : 'bg-app-bg hover:bg-app-primary/10 text-app-text border-app-border hover:border-app-primary/40'
+                      }`}
+                      title={isPicked ? 'Clic para quitar del despacho' : 'Clic para agregar al despacho'}
+                    >
+                      {isPicked && <Check size={12} className="shrink-0" />}
+                      <span className="font-bold">{sr.rollNumber}</span>
+                      <span className={isPicked ? 'text-white/90' : 'text-emerald-600 dark:text-emerald-400 font-bold'}>
+                        {sr.currentMeters.toFixed(2)}m
+                      </span>
+                      {(sr.lot || sr.tono) && (
+                        <span className={`text-[9px] ${isPicked ? 'text-white/80' : 'text-app-text/60'}`}>
+                          {[sr.lot ? `L:${sr.lot}` : '', sr.tono ? `T:${sr.tono}` : ''].filter(Boolean).join(' ')}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {group.source === 'custom' && (
           <ExcelPasteParser
             groupId={group.id}
             pConfig={pConfig}
             isExcelOnly={!!isExcelOnly}
             packingType={packingType}
+            inputRef={quickInputRef}
             onProcess={(text, manualMapping) => onProcessUnifiedInput(group.id, text, manualMapping)}
           />
         )}
@@ -365,7 +543,9 @@ export default function ArticleGroupSection({
         <div className="space-y-2.5 max-h-96 overflow-y-auto pr-0.5 sm:pr-1">
           {group.rolls.length === 0 ? (
             <p className="text-center py-5 text-xs italic text-app-text/50 bg-app-surface/40 rounded-lg border border-dashed border-app-border">
-              No hay metrajes agregados. Escriba un metraje en la casilla de arriba o presione "+ Añadir Fila".
+              {group.source === 'inventory'
+                ? 'Haga clic en los rollos disponibles de arriba para agregarlos en 1 clic.'
+                : 'Escriba metrajes en ráfaga arriba (ej: 48.5 52 50x3 [ENTER]) o presione "+ Añadir Fila".'}
             </p>
           ) : (
             group.rolls.map((roll, rIndex) => {
@@ -448,12 +628,33 @@ export default function ArticleGroupSection({
                         min={packingType === 'corte' ? "0.10" : "10.00"}
                         inputMode="decimal"
                         required
-                        placeholder={packingType === 'corte' ? "0.10" : "10.00"}
+                        placeholder={packingType === 'corte' ? "0.10" : "0.00"}
                         value={roll.meters !== undefined && roll.meters !== null ? roll.meters : ''}
                         onChange={e => onRollFieldChange(group.id, roll.id, 'meters', e.target.value)}
                         onKeyDown={e => {
                           if (e.key === 'e' || e.key === 'E' || e.key === '+') {
                             e.preventDefault();
+                            return;
+                          }
+                          if (e.key === 'ArrowDown') {
+                            e.preventDefault();
+                            const nextEl = document.getElementById(`meters-${group.id}-${rIndex + 1}`);
+                            if (nextEl) (nextEl as HTMLInputElement).focus();
+                            return;
+                          }
+                          if (e.key === 'ArrowUp') {
+                            e.preventDefault();
+                            const prevEl = document.getElementById(`meters-${group.id}-${rIndex - 1}`);
+                            if (prevEl) (prevEl as HTMLInputElement).focus();
+                            return;
+                          }
+                          if (e.key === 'Backspace' && (roll.meters === '' || roll.meters === undefined) && group.rolls.length > 1) {
+                            e.preventDefault();
+                            onRemoveRoll(group.id, roll.id);
+                            setTimeout(() => {
+                              const prevEl = document.getElementById(`meters-${group.id}-${Math.max(0, rIndex - 1)}`);
+                              if (prevEl) (prevEl as HTMLInputElement).focus();
+                            }, 40);
                             return;
                           }
                           onRollKeyDown(e, group.id, rIndex);
@@ -591,23 +792,86 @@ export default function ArticleGroupSection({
           )}
         </div>
 
-        {/* Bottom Quick-Add Roll button for mobile convenience */}
+        {/* Bottom Quick-Add Roll button & Clone Group button */}
         {!isExcelOnly && group.rolls.length > 0 && (
-          <div className="pt-2 border-t border-app-border/40 flex justify-between items-center">
+          <div className="pt-2 border-t border-app-border/40 flex flex-wrap justify-between items-center gap-2">
             <span className="text-[10px] font-mono text-app-text/60">
               Subtotal: <strong>{groupTotalMeters.toFixed(2)}m</strong>{groupTotalWeight > 0 ? <> | <strong>{groupTotalWeight.toFixed(2)}kg</strong></> : null} ({groupTotalRolls} {packingType === 'corte' ? 'cortes' : 'rollos'})
             </span>
-            <button
-              type="button"
-              onClick={() => onAddRoll(group.id)}
-              className="px-3 py-2 bg-app-surface hover:bg-app-bg border border-app-border text-app-primary font-bold rounded-lg text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs min-h-[38px]"
-            >
-              <Plus size={14} />
-              <span>Añadir Fila</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {group.articleId && onCloneGroup && (
+                <button
+                  type="button"
+                  onClick={() => onCloneGroup(group.id)}
+                  className="px-3 py-2 bg-app-primary/10 hover:bg-app-primary/20 border border-app-primary/30 text-app-primary font-bold rounded-lg text-xs flex items-center gap-1.5 transition cursor-pointer min-h-[38px]"
+                  title="Duplicar este artículo en una nueva sección para otro Lote o Tono"
+                >
+                  <Copy size={13} />
+                  <span>+ Mismo Artículo (Otro Lote/Tono)</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  onAddRoll(group.id);
+                  setTimeout(() => {
+                    const nextEl = document.getElementById(`meters-${group.id}-${group.rolls.length}`);
+                    if (nextEl) (nextEl as HTMLInputElement).focus();
+                  }, 60);
+                }}
+                className="px-3 py-2 bg-app-surface hover:bg-app-bg border border-app-border text-app-primary font-bold rounded-lg text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs min-h-[38px]"
+              >
+                <Plus size={14} />
+                <span>Añadir Fila</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
+
+      {depletedScanConfirm && (
+        <div className="fixed inset-0 bg-app-bg/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in no-print">
+          <div className="bg-app-surface border border-app-border rounded-xl w-full max-w-md shadow-2xl overflow-hidden text-app-text">
+            <div className="bg-amber-50 dark:bg-amber-950/20 border-b border-amber-100 dark:border-amber-950/40 p-4 flex items-center gap-3">
+              <span className="text-lg">⚠️</span>
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider">Rollo Registrado como Agotado</h4>
+                <p className="text-[10px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-widest mt-0.5">
+                  Rollo N° {depletedScanConfirm.rollNumber}
+                </p>
+              </div>
+            </div>
+            <div className="p-5 space-y-3 text-xs text-app-text/80 leading-relaxed">
+              <p>
+                Este rollo (<strong>{depletedScanConfirm.rollNumber}</strong>) ya figura como agotado (0 metros) en el almacén y se usó en el Packing List N° <strong>{depletedScanConfirm.packingListNo}</strong>.
+              </p>
+              <p>
+                ¿Deseas continuar de todas formas y cargarlo como entrada manual?
+              </p>
+            </div>
+            <div className="bg-app-bg px-5 py-3.5 border-t border-app-border flex justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setDepletedScanConfirm(null)}
+                className="px-3.5 py-1.5 border border-app-border rounded-lg text-xs font-bold hover:bg-app-surface transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const scanToAdd = depletedScanConfirm.scan;
+                  setDepletedScanConfirm(null);
+                  onAddScannedRoll(group.id, scanToAdd);
+                }}
+                className="px-3.5 py-1.5 bg-app-primary hover:bg-app-primary/90 text-white rounded-lg text-xs font-bold transition cursor-pointer"
+              >
+                Sí, Cargar Manualmente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <BarcodeScannerModal
         isOpen={isScannerOpen}
@@ -670,12 +934,11 @@ export default function ArticleGroupSection({
               }
             }
             const packingListNo = usedPL ? usedPL.packingListNo : 'desconocido';
-            const confirmed = window.confirm(
-              `Este rollo (${depletedRoll.rollNumber}) ya fue registrado como agotado (0 metros) en el almacén. Se usó en el Packing List N° ${packingListNo}. ¿Deseas continuar de todas formas y cargarlo como entrada manual?`
-            );
-            if (confirmed) {
-              onAddScannedRoll(group.id, scan);
-            }
+            setDepletedScanConfirm({
+              rollNumber: depletedRoll.rollNumber,
+              packingListNo,
+              scan
+            });
           } else {
             onAddScannedRoll(group.id, scan);
           }

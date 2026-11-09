@@ -9,7 +9,7 @@ import {
   syncLocalDataToCloud
 } from './firebase';
 import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
-import { Client, Seller, Provider, Article, RollItem, PackingList } from './types';
+import { Client, Seller, Provider, Article, RollItem, PackingList, SalesOrder } from './types';
 
 // Icons
 import { 
@@ -60,8 +60,16 @@ type AppTab = 'generate' | 'sales_order' | 'catalogs' | 'inventory' | 'history' 
 export default function App() {
   const toast = useToast();
   const { currentUser, isLoading: authLoading, logout, hasPermission, mustChangePassword } = useAuth();
-  const isSuperAdmin = currentUser?.email.trim().toLowerCase() === 'paulcalebfs123@gmail.com';
-  const isAdmin = currentUser?.role === 'admin' || isSuperAdmin;
+  const userEmail = (currentUser?.email || '').trim().toLowerCase();
+  const isSuperAdmin = userEmail === 'paulcalebfs123@gmail.com';
+  const userRole = (currentUser?.role || '').trim().toLowerCase();
+  const isAdmin = 
+    isSuperAdmin || 
+    userRole === 'admin' || 
+    userRole === 'superadmin' || 
+    userRole === 'administrador' ||
+    currentUser?.permissions?.manageUsers === true ||
+    currentUser?.permissions?.systemConfig === true;
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -97,6 +105,7 @@ export default function App() {
   }, [currentUser?.name]);
 
   // 4. Restricción de horario laboral (6:00 AM a 8:00 PM) para usuarios no administradores
+  // Los administradores y super administradores tienen acceso 24/7 sin restricción
   useEffect(() => {
     if (!currentUser || isAdmin) return;
 
@@ -107,7 +116,7 @@ export default function App() {
       // Si la hora está fuera de 6:00 AM a 7:59:59 PM (hora < 6 o hora >= 20)
       if (currentHour < 6 || currentHour >= 20) {
         logout();
-        toast.warning('Tu jornada laboral ha concluido. El sistema para tu rol finaliza a las 8:00 PM.', {
+        toast.warning('Tu jornada laboral ha concluido. El horario para tu rol es de 6:00 AM a 8:00 PM. Los administradores tienen acceso 24/7.', {
           title: 'Jornada Laboral Concluida',
           duration: 10000
         });
@@ -119,13 +128,14 @@ export default function App() {
 
     // Monitorear cada 1 minuto (60,000 ms)
     const intervalId = setInterval(checkWorkingHours, 60000);
+    return () => clearInterval(intervalId);
   }, [currentUser, isAdmin, logout, toast]);
 
-  // 5. Cierre de sesión automático por inactividad (20 minutos continuos sin interacción)
+  // 5. Cierre de sesión automático por inactividad (30 minutos continuos sin interacción)
   useEffect(() => {
     if (!currentUser) return;
 
-    const INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutos
+    const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutos
     let timer: ReturnType<typeof setTimeout>;
 
     const handleInactivityTimeout = () => {
@@ -236,6 +246,7 @@ export default function App() {
   const [inventoryLimit, setInventoryLimit] = useState(200);
   const [inventoryHasMore, setInventoryHasMore] = useState(false);
   const [packingLists, setPackingLists] = useState<PackingList[]>([]);
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
   const [listenerRefreshKey, setListenerRefreshKey] = useState(0);
 
   // Print Modal State
@@ -315,17 +326,18 @@ export default function App() {
       sellers: number;
       inventory: number;
       packinglists: number;
+      sales_orders?: number;
     };
   } | null>(null);
 
   useEffect(() => {
-    const collections = ['providers', 'articles', 'clients', 'sellers', 'inventory', 'packinglists'];
+    const collections = ['providers', 'articles', 'clients', 'sellers', 'inventory', 'packinglists', 'sales_orders'];
     const hasPending = collections.some(col => {
       const items = getLocalStorageCollection(col);
       return items.some((item: any) => (item.id && String(item.id).startsWith('local-')) || item._dirty === true);
     });
     setHasPendingSync(hasPending);
-  }, [isLocal, clients, sellers, providers, articles, inventory, packingLists]);
+  }, [isLocal, clients, sellers, providers, articles, inventory, packingLists, salesOrders]);
 
   const handleSyncLocalData = async () => {
     setIsSyncing(true);
@@ -364,6 +376,7 @@ export default function App() {
     setArticles(getLocalStorageCollection('articles'));
     setInventory(getLocalStorageCollection('inventory'));
     setPackingLists(getLocalStorageCollection('packinglists'));
+    setSalesOrders(getLocalStorageCollection('sales_orders'));
     setIsLocal(true);
     setLocalMode(true);
     setLoading(false);
@@ -519,6 +532,18 @@ export default function App() {
         });
         unsubs.push(unsubPackingLists);
 
+        const unsubSalesOrders = onSnapshot(collection(db, 'sales_orders'), (snapshot) => {
+          const list: SalesOrder[] = [];
+          snapshot.forEach(doc => list.push({ ...doc.data(), id: doc.id } as SalesOrder));
+          setSalesOrders(list);
+        }, (error: any) => {
+          console.error("Firestore SalesOrders error:", error);
+          if (error?.code === 'permission-denied') {
+            setSalesOrders(getLocalStorageCollection('sales_orders'));
+          }
+        });
+        unsubs.push(unsubSalesOrders);
+
         // If we reach here successfully and didn't trigger fallback yet
         if (!fallbackTriggered) {
           clearTimeout(timeoutId);
@@ -636,6 +661,11 @@ export default function App() {
               setIsDuplicate(false);
               setActiveTab('generate');
             }}
+            onDuplicate={(pl) => {
+              setEditingPackingList(pl);
+              setIsDuplicate(true);
+              setActiveTab('generate');
+            }}
             initialSearchTerm={historySearchQuery}
             onCreateNew={() => setActiveTab('generate')}
           />
@@ -719,7 +749,8 @@ export default function App() {
       clients,
       sellers,
       inventory,
-      packingLists
+      packingLists,
+      salesOrders
     };
     
     const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
@@ -746,9 +777,8 @@ export default function App() {
     return <LoginScreen />;
   }
 
-  // Protección crítica de cambio obligatorio de contraseña: Si la cuenta requiere cambiar su clave,
-  // la aplicación principal NO se monta en el DOM, impidiendo cualquier bypass visual.
-  if (mustChangePassword || currentUser.mustChangePassword) {
+  // Protección crítica de cambio obligatorio de contraseña (solo aplica a cuentas de administrador):
+  if (currentUser.role === 'admin' && (mustChangePassword || currentUser.mustChangePassword)) {
     return (
       <div className={`min-h-screen bg-slate-950 flex items-center justify-center p-4 ${theme === 'dark' ? 'dark' : ''}`}>
         <ChangePasswordModal 
@@ -961,7 +991,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 pt-1">
-            {isAdmin && (
+            {currentUser.role === 'admin' && (
               <button
                 type="button"
                 onClick={() => {
@@ -980,7 +1010,7 @@ export default function App() {
                 logout();
                 setIsMobileMenuOpen(false);
               }}
-              className="py-1.5 px-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-[11px] font-medium hover:bg-red-500/20 flex items-center justify-center gap-1 cursor-pointer transition-colors"
+              className={`${currentUser.role === 'admin' ? '' : 'w-full'} py-1.5 px-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-[11px] font-medium hover:bg-red-500/20 flex items-center justify-center gap-1 cursor-pointer transition-colors`}
             >
               <LogOut size={12} />
               <span>Salir</span>
@@ -1194,10 +1224,12 @@ export default function App() {
         <div className={`${isSidebarExpanded ? 'p-3.5' : 'p-2 py-3 flex justify-center'} border-t border-app-border/40 bg-app-surface/30 shrink-0 transition-all`}>
           <div className={`flex items-center ${isSidebarExpanded ? 'gap-3' : 'justify-center'}`}>
             <div 
-              className={`h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-sky-400 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm ring-2 ring-white/10 ${isAdmin ? 'cursor-pointer transition-transform hover:scale-105' : ''}`}
-              title={`Usuario activo: ${currentUser.name} (${currentUser.email})`}
+              className={`h-9 w-9 rounded-full bg-gradient-to-tr from-indigo-500 to-sky-400 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-sm ring-2 ring-white/10 ${currentUser.role === 'admin' ? 'cursor-pointer transition-transform hover:scale-105' : ''}`}
+              title={currentUser.role === 'admin' ? `Usuario activo: ${currentUser.name} (${currentUser.email}) — Clic para cambiar clave` : `Usuario activo: ${currentUser.name} (${currentUser.email})`}
               onClick={() => {
-                if (isAdmin) setIsChangePasswordOpen(true);
+                if (currentUser.role === 'admin') {
+                  setIsChangePasswordOpen(true);
+                }
               }}
             >
               {currentUser.name.charAt(0).toUpperCase()}
@@ -1219,7 +1251,7 @@ export default function App() {
                   <span className="text-[9px] uppercase font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 border border-indigo-500/20">
                     {currentUser.role}
                   </span>
-                  {isAdmin && (
+                  {currentUser.role === 'admin' && (
                     <button
                       type="button"
                       onClick={() => setIsChangePasswordOpen(true)}
@@ -1330,7 +1362,7 @@ export default function App() {
 
             {/* Developer Business Rules & Health Monitor */}
             <Suspense fallback={null}>
-              <DevRulesMonitor data={{ inventory, packingLists, articles, providers, clients, sellers }} />
+              <DevRulesMonitor data={{ inventory, packingLists, articles, providers, clients, sellers, salesOrders }} />
             </Suspense>
 
             {/* Theme Toggle Button */}
@@ -1391,8 +1423,8 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="py-1">
-                    {(hasPermission('manageUsers') || currentUser.role === 'admin') && (
+                  {(hasPermission('manageUsers') || currentUser.role === 'admin') && (
+                    <div className="py-1">
                       <button
                         type="button"
                         onClick={() => {
@@ -1404,22 +1436,22 @@ export default function App() {
                         <Users size={14} className="text-indigo-500 dark:text-indigo-400" />
                         <span>Gestión de Usuarios</span>
                       </button>
-                    )}
 
-                    {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsChangePasswordOpen(true);
-                          setIsUserMenuOpen(false);
-                        }}
-                        className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white transition-colors text-left cursor-pointer"
-                      >
-                        <Key size={14} className="text-amber-500 dark:text-amber-400" />
-                        <span>Cambiar mi contraseña</span>
-                      </button>
-                    )}
-                  </div>
+                      {currentUser.role === 'admin' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsChangePasswordOpen(true);
+                            setIsUserMenuOpen(false);
+                          }}
+                          className="w-full px-4 py-2 flex items-center gap-2.5 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-900 dark:hover:text-white transition-colors text-left cursor-pointer"
+                        >
+                          <Key size={14} className="text-amber-500 dark:text-amber-400" />
+                          <span>Cambiar mi contraseña</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
                     <button
@@ -1674,9 +1706,13 @@ export default function App() {
                     <span>Inventario de Rollos:</span>
                     <span className="font-bold text-app-secondary">{syncResultModal.counts.inventory}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between border-b border-app-border/40 pb-1">
                     <span>Packing Lists:</span>
                     <span className="font-bold text-app-secondary">{syncResultModal.counts.packinglists}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Órdenes de Venta:</span>
+                    <span className="font-bold text-app-secondary">{syncResultModal.counts.sales_orders ?? 0}</span>
                   </div>
                 </div>
               )}
@@ -1707,12 +1743,14 @@ export default function App() {
         </div>
       )}
 
-      {/* Change Password Modal (Normal o Forzado por seguridad si usa la clave predeterminada) */}
-      <ChangePasswordModal 
-        isOpen={isChangePasswordOpen || mustChangePassword} 
-        onClose={() => setIsChangePasswordOpen(false)} 
-        isForced={mustChangePassword}
-      />
+      {/* Change Password Modal (Exclusivo para Administradores) */}
+      {currentUser.role === 'admin' && (
+        <ChangePasswordModal 
+          isOpen={isChangePasswordOpen || mustChangePassword} 
+          onClose={() => setIsChangePasswordOpen(false)} 
+          isForced={mustChangePassword}
+        />
+      )}
     </div>
   );
 }
